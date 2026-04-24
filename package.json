@@ -1,0 +1,22 @@
+{
+  "name": "splendur",
+  "version": "1.0.0",
+  "description": "Online multiplayer card game",
+  "private": true,
+  "scripts": {
+    "server": "node server/index.js",
+    "client": "cd client && npm run dev",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "install-all": "npm install && cd client && npm install"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.0.0",
+    "concurrently": "^8.2.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.7.4",
+    "uuid": "^9.0.0"
+  }
+}

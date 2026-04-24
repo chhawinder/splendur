@@ -1,0 +1,253 @@
+/* ============ GLOBAL ============ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+  min-height: 100vh;
+}
+.app { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ============ NAV ============ */
+.top-nav {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 24px; background: #1e293b; border-bottom: 1px solid #334155;
+}
+.nav-brand { font-size: 1.3rem; font-weight: 700; color: #eab308; }
+.nav-right { display: flex; align-items: center; gap: 16px; }
+.nav-user { color: #94a3b8; font-size: 0.9rem; }
+
+/* ============ BUTTONS ============ */
+.btn-primary {
+  background: #eab308; color: #1e293b; border: none; padding: 10px 20px;
+  border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.95rem;
+}
+.btn-primary:hover { background: #facc15; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary {
+  background: #334155; color: #e2e8f0; border: 1px solid #475569; padding: 10px 20px;
+  border-radius: 8px; cursor: pointer; font-size: 0.95rem;
+}
+.btn-secondary:hover { background: #475569; }
+.btn-link { background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 0.9rem; }
+.btn-link:hover { text-decoration: underline; }
+.btn-sm { padding: 5px 12px; font-size: 0.8rem; }
+
+/* ============ LOGIN ============ */
+.login-page {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+}
+.login-card {
+  background: #1e293b; padding: 40px; border-radius: 16px; width: 380px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5); text-align: center;
+}
+.login-card h1 { font-size: 2.5rem; color: #eab308; margin-bottom: 4px; }
+.subtitle { color: #94a3b8; margin-bottom: 24px; }
+.login-card form { display: flex; flex-direction: column; gap: 12px; }
+.login-card input {
+  padding: 12px; border-radius: 8px; border: 1px solid #475569;
+  background: #0f172a; color: #e2e8f0; font-size: 1rem;
+}
+.login-card input:focus { outline: none; border-color: #eab308; }
+.login-card .error { color: #ef4444; font-size: 0.85rem; }
+.login-card .btn-primary { margin-top: 8px; }
+.login-card .btn-link { margin-top: 12px; display: block; }
+.login-card .btn-secondary { margin-top: 8px; width: 100%; }
+
+/* ============ LOBBY ============ */
+.lobby-page { flex: 1; padding: 24px; max-width: 800px; margin: 0 auto; width: 100%; }
+.lobby-header { margin-bottom: 24px; }
+.lobby-header h2 { color: #eab308; }
+.lobby-header p { color: #94a3b8; }
+.create-game { background: #1e293b; padding: 20px; border-radius: 12px; margin-bottom: 24px; }
+.create-game h3 { margin-bottom: 12px; }
+.create-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.create-form input, .create-form select {
+  padding: 10px; border-radius: 8px; border: 1px solid #475569;
+  background: #0f172a; color: #e2e8f0; font-size: 0.95rem;
+}
+.create-form input { flex: 1; min-width: 150px; }
+.available-games h3 { margin-bottom: 12px; }
+.no-games { color: #64748b; font-style: italic; }
+.lobby-item {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #1e293b; padding: 14px 18px; border-radius: 10px; margin-bottom: 8px;
+}
+.lobby-item strong { color: #f1f5f9; }
+.player-count { color: #94a3b8; margin-left: 12px; font-size: 0.85rem; }
+
+/* Lobby Room */
+.lobby-room {
+  background: #1e293b; padding: 30px; border-radius: 16px; text-align: center;
+  max-width: 500px; margin: 60px auto;
+}
+.lobby-room h2 { color: #eab308; margin-bottom: 8px; }
+.lobby-info { color: #94a3b8; margin-bottom: 16px; }
+.player-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.player-slot {
+  background: #0f172a; padding: 12px; border-radius: 8px; font-size: 1rem;
+}
+.player-slot.cpu { color: #60a5fa; }
+.lobby-actions { display: flex; gap: 10px; justify-content: center; }
+.waiting { color: #94a3b8; font-style: italic; }
+
+/* ============ GAME ============ */
+.game-page { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.game-over-banner {
+  background: #eab308; color: #1e293b; text-align: center;
+  padding: 12px; font-size: 1.3rem; font-weight: 700;
+}
+.action-error {
+  background: #dc2626; color: white; text-align: center;
+  padding: 8px; font-size: 0.9rem;
+}
+.loading { flex: 1; display: flex; align-items: center; justify-content: center; color: #94a3b8; }
+
+.game-layout {
+  flex: 1; display: grid;
+  grid-template-columns: 220px 1fr 220px;
+  gap: 12px; padding: 12px; overflow: auto;
+}
+
+/* Players sidebar */
+.players-sidebar { display: flex; flex-direction: column; gap: 10px; }
+.player-panel {
+  background: #1e293b; padding: 12px; border-radius: 10px;
+  border: 2px solid transparent;
+}
+.player-panel.active-turn { border-color: #eab308; }
+.player-panel.is-me { background: #1a2744; }
+.player-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.player-name { font-weight: 600; font-size: 0.9rem; }
+.player-points { color: #eab308; font-weight: 700; }
+.player-chips { display: flex; gap: 4px; margin-bottom: 4px; }
+.mini-chip {
+  width: 26px; height: 26px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700;
+}
+.player-discounts { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
+.discount-badge { font-size: 0.75rem; background: #334155; padding: 2px 6px; border-radius: 4px; }
+.player-info-row { display: flex; gap: 8px; font-size: 0.7rem; color: #64748b; }
+
+/* Board center */
+.board-center { display: flex; flex-direction: column; gap: 10px; }
+
+/* Bonus tiles */
+.bonus-tiles-row { display: flex; gap: 8px; justify-content: center; }
+.bonus-tile {
+  background: #2d1b69; padding: 10px 14px; border-radius: 10px;
+  text-align: center; min-width: 90px; border: 2px solid #4c1d95;
+}
+.bonus-tile.claimed { opacity: 0.5; }
+.tile-points { color: #eab308; font-weight: 700; display: block; }
+.tile-condition { display: flex; gap: 4px; justify-content: center; font-size: 0.8rem; }
+.tile-owner { display: block; font-size: 0.7rem; color: #a78bfa; }
+
+/* Card rows */
+.card-row { display: flex; gap: 8px; align-items: center; }
+.deck-pile {
+  width: 80px; min-height: 110px; background: #334155; border-radius: 10px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  cursor: pointer; border: 2px dashed #475569;
+}
+.deck-pile:hover { border-color: #eab308; }
+.deck-count { font-size: 1.4rem; font-weight: 700; }
+.deck-label { font-size: 0.7rem; color: #94a3b8; }
+
+.card-wrapper { position: relative; }
+.card {
+  width: 110px; min-height: 140px; background: #1e293b; border-radius: 10px;
+  padding: 8px; display: flex; flex-direction: column; justify-content: space-between;
+  cursor: pointer; border: 2px solid #334155; transition: all 0.2s;
+}
+.card:hover { border-color: #64748b; transform: translateY(-2px); }
+.card.card-affordable { border-color: #22c55e; box-shadow: 0 0 10px rgba(34,197,94,0.3); }
+.card-hidden {
+  background: #334155; display: flex; align-items: center; justify-content: center;
+  font-size: 1.5rem; color: #64748b;
+}
+.card-small { width: 90px; min-height: 110px; }
+.card-header { display: flex; justify-content: space-between; align-items: center; }
+.card-points { font-size: 1.4rem; font-weight: 700; color: #f1f5f9; }
+.card-discount { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; }
+.card-costs { display: flex; flex-direction: column; gap: 3px; }
+.cost-item { display: flex; align-items: center; gap: 4px; }
+.cost-count { font-size: 0.85rem; font-weight: 600; min-width: 14px; text-align: right; }
+.cost-dot { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); }
+
+.card-actions-overlay {
+  position: absolute; bottom: -4px; left: 0; right: 0;
+  display: flex; gap: 2px; justify-content: center; opacity: 0; transition: opacity 0.2s;
+}
+.card-wrapper:hover .card-actions-overlay { opacity: 1; }
+.btn-buy {
+  background: #22c55e; color: white; border: none; padding: 3px 8px;
+  border-radius: 4px; font-size: 0.7rem; cursor: pointer; font-weight: 600;
+}
+.btn-reserve {
+  background: #6366f1; color: white; border: none; padding: 3px 8px;
+  border-radius: 4px; font-size: 0.7rem; cursor: pointer;
+}
+
+/* Chip bank */
+.chip-bank { background: #1e293b; padding: 14px; border-radius: 12px; }
+.chip-bank h3 { margin-bottom: 8px; font-size: 0.95rem; }
+.chips-row { display: flex; gap: 10px; justify-content: center; }
+.chip {
+  width: 56px; height: 56px; border-radius: 50%; display: flex;
+  flex-direction: column; align-items: center; justify-content: center;
+  cursor: pointer; border: 3px solid transparent; transition: all 0.2s;
+  font-weight: 700; position: relative;
+}
+.chip:hover { transform: scale(1.1); }
+.chip.chip-selected { border-color: #eab308; transform: scale(1.15); }
+.chip.chip-empty { opacity: 0.3; cursor: not-allowed; }
+.chip-count { font-size: 1.1rem; }
+.chip-label { font-size: 0.6rem; }
+.chip-badge {
+  position: absolute; top: -6px; right: -6px; background: #eab308; color: #1e293b;
+  width: 20px; height: 20px; border-radius: 50%; font-size: 0.7rem;
+  display: flex; align-items: center; justify-content: center;
+}
+.chip-actions { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+
+/* Right sidebar */
+.right-sidebar { display: flex; flex-direction: column; gap: 10px; }
+.my-reserved { background: #1e293b; padding: 12px; border-radius: 10px; }
+.my-reserved h3 { font-size: 0.9rem; margin-bottom: 8px; }
+.game-log { background: #1e293b; padding: 12px; border-radius: 10px; flex: 1; overflow-y: auto; max-height: 300px; }
+.game-log h3 { font-size: 0.9rem; margin-bottom: 8px; }
+.log-entry { font-size: 0.75rem; color: #94a3b8; padding: 3px 0; border-bottom: 1px solid #1e293b; }
+.turn-indicator {
+  background: #1e293b; padding: 12px; border-radius: 10px; text-align: center;
+  font-weight: 600; font-size: 0.95rem;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex;
+  align-items: center; justify-content: center; z-index: 100;
+}
+.modal {
+  background: #1e293b; padding: 30px; border-radius: 16px; max-width: 400px; width: 90%;
+}
+.modal h3 { margin-bottom: 8px; }
+.modal p { color: #94a3b8; margin-bottom: 16px; }
+.return-chips-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.return-row { display: flex; align-items: center; gap: 10px; }
+.return-row button {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid #475569;
+  background: #334155; color: #e2e8f0; cursor: pointer; font-size: 1rem;
+}
+.return-row button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Responsive */
+@media (max-width: 900px) {
+  .game-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .players-sidebar { flex-direction: row; overflow-x: auto; }
+  .player-panel { min-width: 180px; }
+}
