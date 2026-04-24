@@ -32,6 +32,12 @@ body {
 .btn-link { background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 0.9rem; }
 .btn-link:hover { text-decoration: underline; }
 .btn-sm { padding: 5px 12px; font-size: 0.8rem; }
+.btn-danger {
+  background: #dc2626; color: white; border: none; padding: 10px 20px;
+  border-radius: 8px; cursor: pointer; font-size: 0.95rem;
+}
+.btn-danger:hover { background: #ef4444; }
+.btn-resign { width: 100%; margin-top: 8px; }
 
 /* ============ LOGIN ============ */
 .login-page {
@@ -51,9 +57,8 @@ body {
 }
 .login-card input:focus { outline: none; border-color: #eab308; }
 .login-card .error { color: #ef4444; font-size: 0.85rem; }
-.login-card .btn-primary { margin-top: 8px; }
-.login-card .btn-link { margin-top: 12px; display: block; }
-.login-card .btn-secondary { margin-top: 8px; width: 100%; }
+.google-btn-wrapper { display: flex; justify-content: center; margin: 24px 0 16px; }
+.login-note { color: #64748b; font-size: 0.8rem; margin-top: 8px; }
 
 /* ============ LOBBY ============ */
 .lobby-page { flex: 1; padding: 24px; max-width: 800px; margin: 0 auto; width: 100%; }
@@ -95,9 +100,11 @@ body {
 /* ============ GAME ============ */
 .game-page { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .game-over-banner {
-  background: #eab308; color: #1e293b; text-align: center;
-  padding: 12px; font-size: 1.3rem; font-weight: 700;
+  background: linear-gradient(135deg, #eab308, #f59e0b); color: #1e293b; text-align: center;
+  padding: 16px; font-weight: 700;
 }
+.game-over-title { font-size: 1.3rem; }
+.rating-change { font-size: 0.95rem; margin-top: 4px; opacity: 0.85; }
 .action-error {
   background: #dc2626; color: white; text-align: center;
   padding: 8px; font-size: 0.9rem;
@@ -241,6 +248,97 @@ body {
   background: #334155; color: #e2e8f0; cursor: pointer; font-size: 1rem;
 }
 .return-row button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Resign modal */
+.resign-modal { text-align: center; }
+.resign-icon { font-size: 3rem; margin-bottom: 12px; }
+.resign-modal h3 { font-size: 1.3rem; margin-bottom: 8px; color: #f1f5f9; }
+.resign-modal p { color: #94a3b8; font-size: 0.9rem; margin-bottom: 20px; line-height: 1.5; }
+.resign-buttons { display: flex; gap: 12px; justify-content: center; }
+.resign-buttons .btn-secondary { flex: 1; }
+.resign-buttons .btn-danger { flex: 1; }
+
+/* ============ PROFILE PAGE ============ */
+.profile-page { flex: 1; padding: 24px; max-width: 700px; margin: 0 auto; width: 100%; }
+.profile-back { margin-bottom: 16px; display: inline-block; }
+.profile-card {
+  background: #1e293b; border-radius: 16px; padding: 24px;
+  display: flex; align-items: center; gap: 16px; margin-bottom: 20px;
+}
+.profile-avatar img { width: 64px; height: 64px; border-radius: 50%; }
+.avatar-placeholder { font-size: 2.5rem; }
+.profile-info { flex: 1; }
+.profile-info h2 { font-size: 1.3rem; color: #f1f5f9; }
+.profile-email { color: #64748b; font-size: 0.85rem; }
+.profile-rating { text-align: center; }
+.rating-number { font-size: 2rem; font-weight: 700; color: #eab308; display: block; }
+.rating-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
+
+.stats-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 24px;
+}
+.stat-box {
+  background: #1e293b; border-radius: 12px; padding: 16px; text-align: center;
+}
+.stat-value { font-size: 1.5rem; font-weight: 700; color: #f1f5f9; display: block; }
+.stat-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* Challenges */
+.challenges-section { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+.challenges-section h3 { margin-bottom: 14px; color: #eab308; font-size: 1rem; }
+.challenges-list { display: flex; flex-direction: column; gap: 10px; }
+.challenge-item {
+  display: flex; align-items: center; gap: 12px;
+  background: #0f172a; padding: 12px; border-radius: 10px;
+}
+.challenge-item.challenge-done { opacity: 0.6; }
+.challenge-icon { font-size: 1.4rem; }
+.challenge-info { flex: 1; }
+.challenge-name { font-size: 0.9rem; display: block; margin-bottom: 6px; }
+.progress-bar {
+  height: 6px; background: #334155; border-radius: 3px; overflow: hidden;
+}
+.progress-fill {
+  height: 100%; background: linear-gradient(90deg, #eab308, #22c55e);
+  border-radius: 3px; transition: width 0.3s;
+}
+.challenge-progress { font-size: 0.75rem; color: #94a3b8; }
+.challenge-check { font-size: 1.1rem; }
+
+/* Badges */
+.badges-section { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+.badges-section h3 { margin-bottom: 14px; color: #eab308; font-size: 1rem; }
+.no-badges { color: #64748b; font-style: italic; }
+.badges-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.badge-card {
+  background: #0f172a; border-radius: 12px; padding: 14px; text-align: center;
+  border: 1px solid #334155; transition: transform 0.2s;
+}
+.badge-card:hover { transform: translateY(-2px); border-color: #eab308; }
+.badge-icon { font-size: 2rem; display: block; margin-bottom: 6px; }
+.badge-name { font-size: 0.85rem; font-weight: 600; color: #f1f5f9; display: block; margin-bottom: 2px; }
+.badge-desc { font-size: 0.7rem; color: #64748b; display: block; }
+
+/* Badge notification popup */
+.badge-notification {
+  position: fixed; top: 20px; right: 20px; z-index: 200;
+  background: linear-gradient(135deg, #1e1b4b, #312e81);
+  border: 2px solid #eab308; border-radius: 16px; padding: 16px 20px;
+  min-width: 280px; cursor: pointer;
+  animation: badgeSlideIn 0.5s ease-out;
+  box-shadow: 0 10px 40px rgba(234, 179, 8, 0.3);
+}
+@keyframes badgeSlideIn {
+  from { transform: translateX(120%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.badge-notif-content { display: flex; align-items: center; gap: 14px; }
+.badge-notif-icon { font-size: 2.5rem; }
+.badge-notif-text { display: flex; flex-direction: column; }
+.badge-notif-label { font-size: 0.7rem; color: #eab308; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+.badge-notif-name { font-size: 1.1rem; font-weight: 700; color: #f1f5f9; }
+.badge-notif-desc { font-size: 0.8rem; color: #a5b4fc; }
+.badge-notif-counter { text-align: right; font-size: 0.7rem; color: #64748b; margin-top: 6px; }
 
 /* Responsive */
 @media (max-width: 900px) {

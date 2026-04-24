@@ -5,14 +5,25 @@ export default function Lobby({ socket, user, onGameStart }) {
   const [currentLobby, setCurrentLobby] = useState(null);
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [gameName, setGameName] = useState('');
+  const [mySocketId, setMySocketId] = useState(socket.userId || user?.id || null);
 
   useEffect(() => {
+    socket.on('connected', ({ userId }) => {
+      setMySocketId(userId);
+      socket.userId = userId;
+    });
+    if (socket.userId) setMySocketId(socket.userId);
     socket.emit('getLobbies');
     socket.on('lobbiesList', setLobbies);
     socket.on('lobbyCreated', setCurrentLobby);
     socket.on('lobbyUpdated', setCurrentLobby);
     socket.on('gameStarted', ({ gameId }) => onGameStart(gameId));
     socket.on('error', ({ message }) => alert(message));
+    socket.on('lobbyLeft', () => setCurrentLobby(null));
+    socket.on('lobbyClosed', () => {
+      setCurrentLobby(null);
+      socket.emit('getLobbies');
+    });
 
     return () => {
       socket.off('lobbiesList');
@@ -20,6 +31,9 @@ export default function Lobby({ socket, user, onGameStart }) {
       socket.off('lobbyUpdated');
       socket.off('gameStarted');
       socket.off('error');
+      socket.off('lobbyLeft');
+      socket.off('lobbyClosed');
+      socket.off('connected');
     };
   }, [socket, onGameStart]);
 
@@ -41,6 +55,13 @@ export default function Lobby({ socket, user, onGameStart }) {
     if (currentLobby) socket.emit('startGame', { lobbyId: currentLobby.id });
   }
 
+  function leaveLobby() {
+    if (currentLobby) {
+      socket.emit('leaveLobby', { lobbyId: currentLobby.id });
+      setCurrentLobby(null);
+    }
+  }
+
   if (currentLobby) {
     return (
       <div className="lobby-page">
@@ -55,7 +76,7 @@ export default function Lobby({ socket, user, onGameStart }) {
               </div>
             ))}
           </div>
-          {currentLobby.host === socket.userId && (
+          {(currentLobby.host === mySocketId || currentLobby.host === user?.id) ? (
             <div className="lobby-actions">
               {currentLobby.players.length < currentLobby.maxPlayers && (
                 <button className="btn-secondary" onClick={addCPU}>Add CPU</button>
@@ -64,10 +85,12 @@ export default function Lobby({ socket, user, onGameStart }) {
                 <button className="btn-primary" onClick={startGame}>Start Game</button>
               )}
             </div>
-          )}
-          {currentLobby.host !== socket.userId && (
+          ) : (
             <p className="waiting">Waiting for host to start...</p>
           )}
+          <div className="lobby-actions" style={{ marginTop: '12px' }}>
+            <button className="btn-danger" onClick={leaveLobby}>Leave Lobby</button>
+          </div>
         </div>
       </div>
     );

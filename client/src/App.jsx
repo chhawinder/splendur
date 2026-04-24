@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Login from './pages/Login';
 import Lobby from './pages/Lobby';
 import Game from './pages/Game';
+import Profile from './pages/Profile';
 import { getSocket, resetSocket } from './socket';
 import './App.css';
 
@@ -29,6 +30,7 @@ export default function App() {
     const s = getSocket();
     s.on('connected', ({ userId }) => {
       setSocketUserId(userId);
+      s.userId = userId;
     });
     setSocket(s);
     setPage('lobby');
@@ -56,6 +58,9 @@ export default function App() {
             {page === 'game' && (
               <button className="btn-link" onClick={() => setPage('lobby')}>Back to Lobby</button>
             )}
+            {page !== 'profile' && (
+              <button className="btn-link" onClick={() => setPage('profile')}>Profile</button>
+            )}
             <span className="nav-user">{user.username}</span>
             <button className="btn-link" onClick={handleLogout}>Logout</button>
           </div>
@@ -67,6 +72,7 @@ export default function App() {
       {page === 'game' && socket && (
         <Game socket={socket} gameId={gameId} userId={socketUserId || user?.id} />
       )}
+      {page === 'profile' && <Profile onBack={() => setPage('lobby')} />}
     </div>
   );
 }

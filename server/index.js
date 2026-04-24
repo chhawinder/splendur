@@ -2,14 +2,14 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
-const { createUser, getUserByUsername, getUserById } = require('./db');
+const { createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating } = require('./db');
 const { createGame, takeChips, returnChips, reserveCard, purchaseCard, endTurn, getPublicGameState } = require('./gameEngine');
 const { cpuTurn } = require('./cpuPlayer');
+const { checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWeeklyChallenges } = require('./badges');
 
 const app = express();
 const server = http.createServer(app);
@@ -26,40 +26,38 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'client', 'dist')));
 
 // ============ AUTH ROUTES ============
-app.post('/api/signup', async (req, res) => {
+app.post('/api/auth/google', async (req, res) => {
   try {
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
-    if (username.length < 3) return res.status(400).json({ error: 'Username must be at least 3 characters' });
-    if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    const { credential } = req.body;
+    if (!credential) return res.status(400).json({ error: 'No credential provided' });
 
-    const existing = getUserByUsername(username);
-    if (existing) return res.status(400).json({ error: 'Username already taken' });
+    // Decode the Google JWT token (the ID token from Google Sign-In)
+    const parts = credential.split('.');
+    if (parts.length !== 3) return res.status(400).json({ error: 'Invalid token format' });
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
 
-    const id = uuidv4();
-    const hashed = await bcrypt.hash(password, 10);
-    createUser(id, username, hashed);
+    const { sub: googleId, email, name, picture } = payload;
+    if (!email) return res.status(400).json({ error: 'No email in token' });
 
-    const token = jwt.sign({ id, username }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: { id, username, rating: 1500, wins: 0, losses: 0 } });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
+    // Check if user already exists by Google ID or email
+    let user = getUserByGoogleId(googleId) || getUserByEmail(email);
 
-app.post('/api/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    const user = getUserByUsername(username);
-    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
-
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.status(400).json({ error: 'Invalid credentials' });
+    if (!user) {
+      // Create new user
+      const id = uuidv4();
+      const username = name || email.split('@')[0];
+      createGoogleUser(id, username, email, googleId, picture);
+      user = getUserById(id);
+    }
 
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: { id: user.id, username: user.username, rating: user.rating, wins: user.wins, losses: user.losses } });
+    res.json({
+      token,
+      user: { id: user.id, username: user.username, email: user.email, avatar: user.avatar, rating: user.rating, wins: user.wins, losses: user.losses }
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error('Google auth error:', err);
+    res.status(500).json({ error: 'Authentication failed' });
   }
 });
 
@@ -74,6 +72,38 @@ app.get('/api/me', (req, res) => {
   } catch {
     res.status(401).json({ error: 'Invalid token' });
   }
+});
+
+// Badge & challenge endpoints
+function authMiddleware(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ error: 'No token' });
+  try {
+    req.user = jwt.verify(auth.replace('Bearer ', ''), JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+app.get('/api/badges', authMiddleware, (req, res) => {
+  const badges = getPlayerBadgesWithDefs(req.user.id);
+  res.json({ badges });
+});
+
+app.get('/api/challenges', authMiddleware, (req, res) => {
+  const daily = getDailyChallenges(req.user.id);
+  const weekly = getWeeklyChallenges(req.user.id);
+  res.json({ daily, weekly });
+});
+
+app.get('/api/profile', authMiddleware, (req, res) => {
+  const user = getUserById(req.user.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const badges = getPlayerBadgesWithDefs(req.user.id);
+  const daily = getDailyChallenges(req.user.id);
+  const weekly = getWeeklyChallenges(req.user.id);
+  res.json({ user, badges, daily, weekly });
 });
 
 // Catch-all for SPA
@@ -91,10 +121,7 @@ const socketPlayers = new Map(); // socketId -> { userId, username }
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) {
-    // Allow guest players
-    socket.userId = `guest_${uuidv4().slice(0, 8)}`;
-    socket.username = `Guest_${Math.floor(Math.random() * 9999)}`;
-    return next();
+    return next(new Error('Authentication required'));
   }
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -143,6 +170,24 @@ io.on('connection', (socket) => {
     lobby.players.push({ id: socket.userId, name: socket.username, isCPU: false });
     socket.join(`lobby_${lobbyId}`);
     io.to(`lobby_${lobbyId}`).emit('lobbyUpdated', lobby);
+    io.emit('lobbiesList', Array.from(lobbies.values()).filter(l => !l.started));
+  });
+
+  socket.on('leaveLobby', ({ lobbyId }) => {
+    const lobby = lobbies.get(lobbyId);
+    if (!lobby) return;
+
+    if (lobby.host === socket.userId) {
+      // Host leaves — close the lobby, notify everyone
+      io.to(`lobby_${lobbyId}`).emit('lobbyClosed');
+      lobbies.delete(lobbyId);
+    } else {
+      // Non-host leaves
+      lobby.players = lobby.players.filter(p => p.id !== socket.userId);
+      socket.leave(`lobby_${lobbyId}`);
+      socket.emit('lobbyLeft');
+      io.to(`lobby_${lobbyId}`).emit('lobbyUpdated', lobby);
+    }
     io.emit('lobbiesList', Array.from(lobbies.values()).filter(l => !l.started));
   });
 
@@ -238,22 +283,103 @@ io.on('connection', (socket) => {
     finishTurn(game);
   });
 
+  socket.on('resign', ({ gameId }) => {
+    const game = activeGames.get(gameId);
+    if (!game || game.phase === 'ended') return;
+
+    const resignPlayer = game.players.find(p => p.id === socket.userId);
+    if (!resignPlayer) return;
+
+    game.phase = 'ended';
+    game.log.push(`${resignPlayer.name} has resigned!`);
+
+    // Pick winner: highest points among remaining players, or first non-resigned
+    const remaining = game.players.filter(p => p.id !== socket.userId);
+    if (remaining.length === 1) {
+      game.winner = remaining[0].id;
+    } else {
+      remaining.sort((a, b) => b.points - a.points || a.cards.length - b.cards.length);
+      game.winner = remaining[0].id;
+    }
+
+    const winnerName = game.players.find(p => p.id === game.winner)?.name;
+    game.log.push(`${winnerName} wins!`);
+
+    applyRatings(game);
+    broadcastGameState(game);
+  });
+
   socket.on('disconnect', () => {
     playerSockets.delete(socket.userId);
     socketPlayers.delete(socket.id);
   });
 });
 
-function finishTurn(game) {
-  endTurn(game);
+function calculateElo(winnerRating, loserRating, K = 32) {
+  const expected = 1 / (1 + Math.pow(10, (loserRating - winnerRating) / 400));
+  const winnerNew = Math.round(winnerRating + K * (1 - expected));
+  const loserNew = Math.round(loserRating + K * (0 - (1 - expected)));
+  return { winnerNew, loserNew, winnerGain: winnerNew - winnerRating, loserLoss: loserRating - loserNew };
+}
 
-  // Send updated state to all players
+function applyRatings(game) {
+  if (game.ratingsApplied) return;
+  game.ratingsApplied = true;
+
+  const winnerId = game.winner;
+  if (!winnerId) return;
+
+  const humanPlayers = game.players.filter(p => !game.cpuPlayers?.includes(p.id));
+  if (humanPlayers.length < 2) return; // Don't update ratings for CPU-only games
+
+  const winner = getUserById(winnerId);
+  if (!winner) return;
+
+  const losers = humanPlayers.filter(p => p.id !== winnerId);
+  const ratingChanges = {};
+
+  for (const loser of losers) {
+    const loserUser = getUserById(loser.id);
+    if (!loserUser) continue;
+    const { winnerNew, loserNew, winnerGain, loserLoss } = calculateElo(winner.rating, loserUser.rating);
+    updateRating(winnerId, winnerNew, true);
+    updateRating(loser.id, loserNew, false);
+    ratingChanges[winnerId] = { newRating: winnerNew, change: `+${winnerGain}` };
+    ratingChanges[loser.id] = { newRating: loserNew, change: `-${loserLoss}` };
+  }
+
+  game.ratingChanges = ratingChanges;
+
+  // Check badges for all human players
+  game.newBadges = {};
+  for (const p of humanPlayers) {
+    const earned = checkAndAwardBadges(p.id);
+    if (earned.length > 0) {
+      game.newBadges[p.id] = earned;
+    }
+  }
+}
+
+function broadcastGameState(game) {
   for (const p of game.players) {
     const ps = playerSockets.get(p.id);
     if (ps) {
-      ps.emit('gameState', getPublicGameState(game, p.id));
+      const state = getPublicGameState(game, p.id);
+      state.ratingChanges = game.ratingChanges || null;
+      state.newBadges = game.newBadges?.[p.id] || null;
+      ps.emit('gameState', state);
     }
   }
+}
+
+function finishTurn(game) {
+  endTurn(game);
+
+  if (game.phase === 'ended') {
+    applyRatings(game);
+  }
+
+  broadcastGameState(game);
 
   // If next player is CPU, process their turn
   if (game.phase !== 'ended' && game.cpuPlayers && game.cpuPlayers.includes(game.players[game.currentPlayerIndex].id)) {

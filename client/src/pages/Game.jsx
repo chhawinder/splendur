@@ -3,6 +3,8 @@ import Card from '../components/Card';
 import ChipBank from '../components/ChipBank';
 import PlayerPanel from '../components/PlayerPanel';
 import ReturnChipsModal from '../components/ReturnChipsModal';
+import ResignModal from '../components/ResignModal';
+import BadgeNotification from '../components/BadgeNotification';
 import { COLOR_EMOJI } from '../components/Card';
 
 export default function Game({ socket, gameId, userId }) {
@@ -11,11 +13,16 @@ export default function Game({ socket, gameId, userId }) {
   const [returnChips, setReturnChipsData] = useState(null);
   const [actionError, setActionError] = useState('');
   const [showReserved, setShowReserved] = useState(false);
+  const [showResign, setShowResign] = useState(false);
+  const [newBadges, setNewBadges] = useState(null);
 
   useEffect(() => {
     socket.on('gameState', (state) => {
       setGameState(state);
       setActionError('');
+      if (state.newBadges && state.newBadges.length > 0) {
+        setNewBadges(state.newBadges);
+      }
     });
     socket.on('needsReturn', ({ currentChips }) => {
       setReturnChipsData(currentChips);
@@ -75,11 +82,27 @@ export default function Game({ socket, gameId, userId }) {
     setShowReturn(false);
   }
 
+  function handleResign() {
+    setShowResign(true);
+  }
+
+  function confirmResign() {
+    socket.emit('resign', { gameId });
+    setShowResign(false);
+  }
+
   return (
     <div className="game-page">
       {gameState.phase === 'ended' && (
         <div className="game-over-banner">
-          {gameState.winner === userId ? '🎉 You Win!' : `Game Over - ${gameState.players.find(p => p.id === gameState.winner)?.name} wins!`}
+          <div className="game-over-title">
+            {gameState.winner === userId ? '🎉 You Win!' : `Game Over - ${gameState.players.find(p => p.id === gameState.winner)?.name} wins!`}
+          </div>
+          {gameState.ratingChanges && gameState.ratingChanges[userId] && (
+            <div className="rating-change">
+              Rating: {gameState.ratingChanges[userId].newRating} ({gameState.ratingChanges[userId].change})
+            </div>
+          )}
         </div>
       )}
 
@@ -181,11 +204,23 @@ export default function Game({ socket, gameId, userId }) {
           <div className="turn-indicator">
             {isMyTurn ? "🟢 Your turn!" : `Waiting for ${gameState.players[gameState.currentPlayerIndex]?.name}...`}
           </div>
+
+          {gameState.phase !== 'ended' && (
+            <button className="btn-danger btn-resign" onClick={handleResign}>Resign</button>
+          )}
         </div>
       </div>
 
       {showReturn && returnChips && (
         <ReturnChipsModal currentChips={returnChips} onReturn={handleReturn} />
+      )}
+
+      {showResign && (
+        <ResignModal onConfirm={confirmResign} onCancel={() => setShowResign(false)} />
+      )}
+
+      {newBadges && (
+        <BadgeNotification badges={newBadges} onDone={() => setNewBadges(null)} />
       )}
     </div>
   );
