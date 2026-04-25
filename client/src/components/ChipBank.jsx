@@ -45,13 +45,13 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
   const [selected, setSelected] = useState({});
   const [flyingChips, setFlyingChips] = useState([]);
   const [landPulses, setLandPulses] = useState([]);
+  const [animating, setAnimating] = useState(false);
   const chipRefs = useRef({});
-  const bankRef = useRef(null);
 
   const totalSelected = Object.values(selected).reduce((s, v) => s + v, 0);
 
   function toggleChip(color) {
-    if (!isMyTurn) return;
+    if (!isMyTurn || animating) return;
     const current = selected[color] || 0;
 
     if (totalSelected === 0) {
@@ -85,7 +85,8 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
   }
 
   function confirm() {
-    if (totalSelected < 2) return;
+    if (totalSelected < 2 || animating) return;
+    setAnimating(true);
 
     // Find the target — the "is-me" player panel gem area
     const targetEl = document.querySelector('.player-panel.is-me .player-gem-columns');
@@ -96,9 +97,9 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
     const targetX = targetRect.left + targetRect.width / 2;
     const targetY = targetRect.top + targetRect.height / 2;
 
-    // Create flying chips from their source positions
-    const chips = [];
-    let delay = 0;
+    // Collect chip info with staggered spawning
+    const chipQueue = [];
+    let idx = 0;
     for (const [color, count] of Object.entries(selected)) {
       if (count <= 0) continue;
       const sourceEl = chipRefs.current[color];
@@ -110,56 +111,64 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
       const startY = sourceRect.top + sourceRect.height / 2;
 
       for (let i = 0; i < count; i++) {
-        chips.push({
+        chipQueue.push({
           id: `${color}_${i}_${Date.now()}`,
           color,
           startX,
           startY,
           endX: targetX,
           endY: targetY,
-          delay: delay * 120,
+          spawnDelay: idx * 150,
         });
-        delay++;
+        idx++;
       }
     }
 
-    setFlyingChips(chips);
-
-    // Add landing pulses staggered to match chip arrivals
-    const pulses = chips.map((chip, i) => ({
-      id: `pulse_${chip.id}`,
-      x: targetX,
-      y: targetY,
-      color: GEM_STYLES[chip.color]?.glow || 'rgba(212,175,55,0.6)',
-      delay: chip.delay + 550, // arrives ~550ms after start
-    }));
-
-    pulses.forEach(pulse => {
+    // Spawn each chip with a staggered delay
+    chipQueue.forEach(chip => {
       setTimeout(() => {
-        setLandPulses(prev => [...prev, pulse]);
+        setFlyingChips(prev => [...prev, chip]);
+
+        // Remove this chip after its animation completes (0.9s)
         setTimeout(() => {
-          setLandPulses(prev => prev.filter(p => p.id !== pulse.id));
-        }, 500);
-      }, pulse.delay);
+          setFlyingChips(prev => prev.filter(c => c.id !== chip.id));
+        }, 950);
+
+        // Landing pulse when chip arrives (~650ms into animation)
+        setTimeout(() => {
+          const pulseId = `pulse_${chip.id}`;
+          setLandPulses(prev => [...prev, {
+            id: pulseId,
+            x: targetX,
+            y: targetY,
+            color: GEM_STYLES[chip.color]?.glow || 'rgba(212,175,55,0.6)',
+          }]);
+          setTimeout(() => {
+            setLandPulses(prev => prev.filter(p => p.id !== pulseId));
+          }, 500);
+        }, 650);
+      }, chip.spawnDelay);
     });
 
-    // After animation completes, take chips
-    const totalDuration = 750 + delay * 120;
+    // After all animations done, send the action
+    const lastSpawn = chipQueue.length > 0 ? chipQueue[chipQueue.length - 1].spawnDelay : 0;
+    const totalDuration = lastSpawn + 1000;
     setTimeout(() => {
       onTakeChips(selected);
       setSelected({});
-      setFlyingChips([]);
+      setAnimating(false);
     }, totalDuration);
   }
 
   function clear() {
+    if (animating) return;
     setSelected({});
   }
 
   const canConfirm = totalSelected === 3 || (totalSelected === 2 && Object.keys(selected).filter(c => selected[c] > 0).length === 1);
 
   return (
-    <div className="chip-bank" ref={bankRef}>
+    <div className="chip-bank">
       <div className="chip-bank-label">Gem Bank</div>
       <div className="chips-row">
         {COLORS.map(color => {
@@ -202,7 +211,7 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
         </div>
       </div>
 
-      {totalSelected > 0 && (
+      {totalSelected > 0 && !animating && (
         <div className="chip-actions">
           <button className="btn-take" onClick={confirm} disabled={!canConfirm}>
             Take Gems
@@ -211,7 +220,7 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
         </div>
       )}
 
-      {/* Flying chips with arc trajectory */}
+      {/* Flying chips — each spawned individually via setTimeout */}
       {flyingChips.map(chip => (
         <div
           key={chip.id}
@@ -221,7 +230,6 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
             '--start-y': `${chip.startY}px`,
             '--end-x': `${chip.endX}px`,
             '--end-y': `${chip.endY}px`,
-            animationDelay: `${chip.delay}ms`,
             background: GEM_STYLES[chip.color].bg,
             border: `2px solid ${GEM_STYLES[chip.color].glow}`,
           }}
