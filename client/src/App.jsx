@@ -58,6 +58,7 @@ export default function App() {
         socket.emit('leaveGame', { gameId });
       }
     }
+    setGameId(null);
     setPage('lobby');
   }
 
@@ -102,8 +103,11 @@ export default function App() {
         <nav className="top-nav">
           <span className="nav-brand">Splendur</span>
           <div className="nav-right">
-            {page !== 'profile' && page !== 'login' && (
+            {page !== 'profile' && page !== 'login' && page !== 'game' && (
               <button className="btn-link" onClick={() => setPage('profile')}>Profile</button>
+            )}
+            {gameId && page !== 'game' && (
+              <button className="btn-link" onClick={() => setPage('game')}>Back to Game</button>
             )}
             <span className="nav-user">{user.username}</span>
             <button className="btn-link" onClick={handleLogout}>Logout</button>
@@ -113,7 +117,7 @@ export default function App() {
 
       {page === 'login' && <Login onLogin={handleLogin} />}
       {page === 'lobby' && socket && <Lobby socket={socket} user={user} onGameStart={handleGameStart} onSpectate={handleSpectate} />}
-      {page === 'game' && socket && (
+      {page === 'game' && socket && gameId && (
         <Game
           socket={socket}
           gameId={gameId}
@@ -122,7 +126,7 @@ export default function App() {
           onLeave={handleLeaveGame}
         />
       )}
-      {page === 'profile' && <Profile onBack={() => setPage('lobby')} />}
+      {page === 'profile' && <Profile onBack={() => setPage(gameId ? 'game' : 'lobby')} />}
     </div>
   );
 }
