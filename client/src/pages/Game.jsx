@@ -88,6 +88,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   const [flyingNobles, setFlyingNobles] = useState([]);
   const [confetti, setConfetti] = useState([]);
   const [highlightCards, setHighlightCards] = useState([]); // cards being highlighted before fly
+  const [popupCard, setPopupCard] = useState(null); // card zooming to center before fly
   const [newBoardCards, setNewBoardCards] = useState(new Set()); // newly appeared cards
   const cardRefs = useRef({});
   const tileRefs = useRef({});
@@ -95,7 +96,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   const prevAllPlayers = useRef(null); // track ALL players' cards
   const prevBoardCards = useRef(null); // track board card IDs
 
-  // Animate card purchase — works for any player
+  // Animate card purchase — popup to center, then fly to player panel
   const animateCardFly = useCallback((cardId, color, targetSelector) => {
     const sourceEl = cardRefs.current[cardId];
     const targetEl = document.querySelector(targetSelector);
@@ -104,16 +105,27 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     const sr = sourceEl.getBoundingClientRect();
     const tr = targetEl.getBoundingClientRect();
 
-    // First: highlight the card for 800ms so user can see it
-    setHighlightCards(prev => [...prev, { id: cardId, color }]);
+    // Phase 1: zoom card from its position to screen center (1s)
+    setPopupCard({
+      id: cardId,
+      color,
+      bg: CARD_BG_SOLID[color],
+      glow: CARD_GLOW[color],
+      startX: sr.left + sr.width / 2,
+      startY: sr.top + sr.height / 2,
+    });
 
+    // Phase 2: after popup hold, fly from center to player panel
     setTimeout(() => {
-      setHighlightCards(prev => prev.filter(h => h.id !== cardId));
-      // Then: fly it
+      setPopupCard(null);
+
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+
       setFlyingCards(prev => [...prev, {
         id: `card_${cardId}_${Date.now()}`,
-        startX: sr.left,
-        startY: sr.top,
+        startX: cx - 75, // half of popup size (150px)
+        startY: cy - 105, // half of popup size (210px)
         endX: tr.left + tr.width / 2 - 60,
         endY: tr.top + tr.height / 2,
         color,
@@ -124,7 +136,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       setTimeout(() => {
         setFlyingCards(prev => prev.filter(c => !c.id.startsWith(`card_${cardId}`)));
       }, 1600);
-    }, 800);
+    }, 1400); // 1s zoom-in + 0.4s hold at center
   }, []);
 
   const animateNobleClaim = useCallback((tileId, targetSelector) => {
@@ -179,8 +191,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
             for (const card of newCards) {
               animateCardFly(card.id, card.discount, panelSelector);
             }
-            // highlight(800ms) + fly(1.5s) — update state when fly is ~60% done
-            animationDelay = Math.max(animationDelay, 1700);
+            // popup(1.4s) + fly(1.5s) — update state when fly is ~60% done
+            animationDelay = Math.max(animationDelay, 2300);
           }
         }
       }
@@ -511,6 +523,22 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
 
       {newBadges && (
         <BadgeNotification badges={newBadges} onDone={() => setNewBadges(null)} />
+      )}
+
+      {/* Card popup — zooms from board position to screen center */}
+      {popupCard && (
+        <div className="card-popup-overlay">
+          <div
+            className="card-popup"
+            style={{
+              '--origin-x': `${popupCard.startX}px`,
+              '--origin-y': `${popupCard.startY}px`,
+              '--card-glow': popupCard.glow,
+              background: popupCard.bg,
+              border: `2px solid ${CARD_GLOW[popupCard.color]}`,
+            }}
+          />
+        </div>
       )}
 
       {/* Flying card animations */}
