@@ -987,7 +987,33 @@ body {
   font-size: 1.7rem; font-weight: 900;
   letter-spacing: -0.5px;
 }
-.card-gem-icon { font-size: 1.4rem; }
+.card-gem-icon {
+  font-size: 1.6rem;
+  animation: gemIconShimmer 3s ease-in-out infinite;
+}
+.card-gem-icon-black { color: #d4af37; text-shadow: 0 0 8px rgba(212,175,55,0.6), 0 0 20px rgba(180,140,40,0.3); }
+.card-gem-icon-white { color: rgba(0,0,0,0.5); text-shadow: 0 0 8px rgba(255,255,255,0.5), 0 0 16px rgba(200,200,200,0.3); }
+.card-gem-icon-blue  { color: #8ec8f0; text-shadow: 0 0 8px rgba(142,200,240,0.6), 0 0 20px rgba(107,163,214,0.3); }
+.card-gem-icon-green { color: #7edba8; text-shadow: 0 0 8px rgba(126,219,168,0.6), 0 0 20px rgba(90,170,138,0.3); }
+.card-gem-icon-red   { color: #ff4040; text-shadow: 0 0 8px rgba(255,64,64,0.6), 0 0 20px rgba(200,0,0,0.3); }
+@keyframes gemIconShimmer {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.4) drop-shadow(0 0 4px rgba(255,255,255,0.2)); }
+}
+@keyframes gemShimmerBlack {
+  0%   { filter: drop-shadow(0 0 4px rgba(212,175,55,0.3)) brightness(1); }
+  25%  { filter: drop-shadow(0 0 7px rgba(212,175,55,0.5)) brightness(1.15); }
+  50%  { filter: drop-shadow(0 0 12px rgba(212,175,55,0.8)) drop-shadow(0 0 20px rgba(180,140,40,0.4)) brightness(1.45); }
+  75%  { filter: drop-shadow(0 0 7px rgba(212,175,55,0.5)) brightness(1.15); }
+  100% { filter: drop-shadow(0 0 4px rgba(212,175,55,0.3)) brightness(1); }
+}
+@keyframes gemShimmerRed {
+  0%   { filter: drop-shadow(0 0 4px rgba(255,64,64,0.3)) brightness(1); }
+  25%  { filter: drop-shadow(0 0 7px rgba(255,64,64,0.5)) brightness(1.15); }
+  50%  { filter: drop-shadow(0 0 12px rgba(255,64,64,0.8)) drop-shadow(0 0 20px rgba(200,0,0,0.4)) brightness(1.45); }
+  75%  { filter: drop-shadow(0 0 7px rgba(255,64,64,0.5)) brightness(1.15); }
+  100% { filter: drop-shadow(0 0 4px rgba(255,64,64,0.3)) brightness(1); }
+}
 
 /* Card cost gems */
 .card-cost-area {

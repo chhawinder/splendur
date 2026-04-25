@@ -13,7 +13,7 @@ const { checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWee
 
 const app = express();
 const server = http.createServer(app);
-const JWT_SECRET = 'splendur-secret-key-change-in-prod';
+const JWT_SECRET = process.env.JWT_SECRET || 'splendur-secret-key-change-in-prod';
 
 const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] }

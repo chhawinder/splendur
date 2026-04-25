@@ -52,12 +52,46 @@ const CARD_BODY_THEMES = {
 };
 
 // Gem icons per color
+// SVG gem icons for premium look
+const OnyxGem = () => (
+  <svg viewBox="0 0 32 32" width="1em" height="1em" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+    {/* Emerald-cut rectangular onyx */}
+    <polygon points="8,4 24,4 28,8 28,24 24,28 8,28 4,24 4,8" fill="#1a1018" />
+    {/* Top facet — lightest */}
+    <polygon points="8,4 24,4 21,9 11,9" fill="#3a2a3a" />
+    {/* Right facet */}
+    <polygon points="24,4 28,8 28,24 24,28 21,23 21,9" fill="#2a1a28" />
+    {/* Bottom facet */}
+    <polygon points="8,28 24,28 21,23 11,23" fill="#1a0a18" />
+    {/* Left facet */}
+    <polygon points="8,4 4,8 4,24 8,28 11,23 11,9" fill="#2e1e2e" />
+    {/* Center table */}
+    <rect x="11" y="9" width="10" height="14" fill="#221422" />
+    {/* Shine highlights */}
+    <polygon points="8,4 14,4 11,9" fill="white" opacity="0.2" />
+    <line x1="11" y1="9" x2="21" y2="9" stroke="white" strokeWidth="0.6" opacity="0.25" />
+    <line x1="11" y1="9" x2="11" y2="23" stroke="white" strokeWidth="0.4" opacity="0.15" />
+  </svg>
+);
+
+const RubyGem = () => (
+  <svg viewBox="0 0 32 32" width="1em" height="1em" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+    <polygon points="16,1 30,12 25,30 7,30 2,12" fill="currentColor" opacity="0.85" />
+    <polygon points="16,1 30,12 16,15 2,12" fill="currentColor" opacity="1" />
+    <polygon points="16,15 30,12 25,30" fill="currentColor" opacity="0.55" />
+    <polygon points="16,15 2,12 7,30" fill="currentColor" opacity="0.7" />
+    <polygon points="16,15 7,30 25,30" fill="currentColor" opacity="0.45" />
+    <polygon points="10,7 16,3 22,7 16,13" fill="white" opacity="0.3" />
+    <line x1="16" y1="1" x2="16" y2="15" stroke="white" strokeWidth="0.5" opacity="0.2" />
+  </svg>
+);
+
 const GEM_ICONS = {
-  black: '◆',
+  black: <OnyxGem />,
   white: '◇',
   blue: '💎',
   green: '🌿',
-  red: '♦',
+  red: <RubyGem />,
 };
 
 // Cost circle colors — vivid gem tones for readability
@@ -109,9 +143,7 @@ export default function Card({ card, onClick, small }) {
             {card.points}
           </span>
         ) : <span />}
-        <span className="card-gem-icon" style={{
-          color: isWhite ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)',
-        }}>
+        <span className={`card-gem-icon card-gem-icon-${color}`}>
           {GEM_ICONS[color]}
         </span>
       </div>
