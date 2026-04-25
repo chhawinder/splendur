@@ -127,20 +127,28 @@ function takeChips(game, playerId, chipSelection) {
   const colors = Object.keys(chipSelection).filter(c => c !== 'gold' && chipSelection[c] > 0);
   const totalTaking = Object.values(chipSelection).reduce((s, v) => s + v, 0);
 
-  // Validate: take 3 different colors or 2 same color
+  // Validate: take 1-3 different colors, or 2 same color
   if (totalTaking === 3) {
     if (colors.length !== 3) return { error: 'Must take 3 chips of different colors' };
     for (const c of colors) {
       if (chipSelection[c] !== 1) return { error: 'Must take exactly 1 of each color' };
       if (game.bank[c] < 1) return { error: `No ${c} chips available` };
     }
-  } else if (totalTaking === 2) {
-    if (colors.length !== 1) return { error: 'Must take 2 chips of the same color' };
+  } else if (totalTaking === 2 && colors.length === 1) {
     const color = colors[0];
     if (chipSelection[color] !== 2) return { error: 'Must take exactly 2' };
     if (game.bank[color] < 4) return { error: `Need at least 4 ${color} chips in bank to take 2` };
+  } else if (totalTaking === 2 && colors.length === 2) {
+    for (const c of colors) {
+      if (chipSelection[c] !== 1) return { error: 'Must take exactly 1 of each color' };
+      if (game.bank[c] < 1) return { error: `No ${c} chips available` };
+    }
+  } else if (totalTaking === 1) {
+    if (colors.length !== 1) return { error: 'Must take 1 chip of one color' };
+    const color = colors[0];
+    if (game.bank[color] < 1) return { error: `No ${color} chips available` };
   } else {
-    return { error: 'Must take 2 or 3 chips' };
+    return { error: 'Must take 1, 2, or 3 chips' };
   }
 
   // Apply
@@ -196,9 +204,9 @@ function reserveCard(game, playerId, cardId, fromDeck) {
       const idx = game.board[level].findIndex(c => c.id === cardId);
       if (idx !== -1) {
         card = game.board[level].splice(idx, 1)[0];
-        // Refill from deck
+        // Refill from deck — insert at same position to preserve card order
         if (game.decks[level].length > 0) {
-          game.board[level].push(game.decks[level].shift());
+          game.board[level].splice(idx, 0, game.decks[level].shift());
         }
         break;
       }
@@ -261,8 +269,9 @@ function purchaseCard(game, playerId, cardId) {
   } else {
     const idx = game.board[boardLevel].findIndex(c => c.id === cardId);
     game.board[boardLevel].splice(idx, 1);
+    // Refill from deck — insert at same position to preserve card order
     if (game.decks[boardLevel].length > 0) {
-      game.board[boardLevel].push(game.decks[boardLevel].shift());
+      game.board[boardLevel].splice(idx, 0, game.decks[boardLevel].shift());
     }
   }
   player.cards.push(card);

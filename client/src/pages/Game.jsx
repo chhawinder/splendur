@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Card from '../components/Card';
-import ChipBank from '../components/ChipBank';
+import ChipBank, { GEM_STYLES } from '../components/ChipBank';
 import PlayerPanel from '../components/PlayerPanel';
 import ReturnChipsModal from '../components/ReturnChipsModal';
 import ResignModal from '../components/ResignModal';
@@ -90,53 +90,68 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   const [highlightCards, setHighlightCards] = useState([]); // cards being highlighted before fly
   const [popupCard, setPopupCard] = useState(null); // card zooming to center before fly
   const [newBoardCards, setNewBoardCards] = useState(new Set()); // newly appeared cards
-  const cardRefs = useRef({});
+  const [hiddenBoardCards, setHiddenBoardCards] = useState(new Set()); // cards being removed (empty slot)
+  const [gemPopup, setGemPopup] = useState(null);       // gems shown at center
+  const [flyingGems, setFlyingGems] = useState([]);      // gems flying from center to panel
+  const [gemAnimating, setGemAnimating] = useState(false);
+  const cardRefs = useRef({});       // board card elements
+  const reservedRefs = useRef({});   // reserved card elements
   const tileRefs = useRef({});
+  const animBusyUntil = useRef(0);       // timestamp when current animations finish
+  const pendingStates = useRef([]);       // queued gameState events waiting for animations
   const prevBonusTiles = useRef(null);
   const prevAllPlayers = useRef(null); // track ALL players' cards
   const prevBoardCards = useRef(null); // track board card IDs
 
-  // Animate card purchase — popup to center, then fly to player panel
-  const animateCardFly = useCallback((cardId, color, targetSelector) => {
-    const sourceEl = cardRefs.current[cardId];
+  // Animate card purchase — popup to center with full card info, then fly to player panel
+  const animateCardFly = useCallback((card, targetSelector) => {
+    const cardId = card.id;
+    const color = card.discount;
+    const sourceEl = cardRefs.current[cardId] || reservedRefs.current[cardId];
     const targetEl = document.querySelector(targetSelector);
     if (!sourceEl || !targetEl) return;
 
-    const sr = sourceEl.getBoundingClientRect();
     const tr = targetEl.getBoundingClientRect();
 
-    // Phase 1: zoom card from its position to screen center (1s)
-    setPopupCard({
-      id: cardId,
-      color,
-      bg: CARD_BG_SOLID[color],
-      glow: CARD_GLOW[color],
-      startX: sr.left + sr.width / 2,
-      startY: sr.top + sr.height / 2,
-    });
+    // Phase 0: highlight card on board (600ms glow pulse)
+    setHighlightCards([{ id: cardId, color }]);
 
-    // Phase 2: after popup hold, fly from center to player panel
     setTimeout(() => {
-      setPopupCard(null);
+      setHighlightCards([]);
+      const sr = sourceEl.getBoundingClientRect();
 
-      const cx = window.innerWidth / 2;
-      const cy = window.innerHeight / 2;
-
-      setFlyingCards(prev => [...prev, {
-        id: `card_${cardId}_${Date.now()}`,
-        startX: cx - 75, // half of popup size (150px)
-        startY: cy - 105, // half of popup size (210px)
-        endX: tr.left + tr.width / 2 - 60,
-        endY: tr.top + tr.height / 2,
+      // Phase 1: zoom card from its position to screen center (1.4s)
+      setPopupCard({
+        cardData: card,
         color,
-        bg: CARD_BG_SOLID[color],
         glow: CARD_GLOW[color],
-      }]);
+        startX: sr.left + sr.width / 2,
+        startY: sr.top + sr.height / 2,
+      });
 
+      // Phase 2: after popup hold, fly from center to player panel
       setTimeout(() => {
-        setFlyingCards(prev => prev.filter(c => !c.id.startsWith(`card_${cardId}`)));
-      }, 1600);
-    }, 1400); // 1s zoom-in + 0.4s hold at center
+        setPopupCard(null);
+
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
+
+        setFlyingCards(prev => [...prev, {
+          id: `card_${cardId}_${Date.now()}`,
+          startX: cx - 75,
+          startY: cy - 105,
+          endX: tr.left + tr.width / 2 - 60,
+          endY: tr.top + tr.height / 2,
+          color,
+          bg: CARD_BG_SOLID[color],
+          glow: CARD_GLOW[color],
+        }]);
+
+        setTimeout(() => {
+          setFlyingCards(prev => prev.filter(c => !c.id.startsWith(`card_${cardId}`)));
+        }, 1600);
+      }, 1400);
+    }, 600);
   }, []);
 
   const animateNobleClaim = useCallback((tileId, targetSelector) => {
@@ -173,8 +188,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     // Request current game state on mount (in case we missed the initial emit)
     socket.emit('getGameState', { gameId });
 
-    socket.on('gameState', (state) => {
-      let animationDelay = 0; // delay state update if animations are playing
+    function processGameState(state) {
+      let animationDelay = 0;
 
       // Detect card purchases for ALL players (highlight + fly)
       if (prevAllPlayers.current) {
@@ -189,16 +204,85 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
               ? '.player-panel.is-me'
               : `[data-player-id="${player.id}"]`;
             for (const card of newCards) {
-              animateCardFly(card.id, card.discount, panelSelector);
+              animateCardFly(card, panelSelector);
             }
-            // popup(1.4s) + fly(1.5s) — update state when fly is ~60% done
-            animationDelay = Math.max(animationDelay, 2300);
+            animationDelay = Math.max(animationDelay, 2900);
           }
         }
       }
 
-      // Detect noble tile claims for ALL players
+      // Detect card reservations for ALL players (highlight + popup + fly to reserved)
+      if (prevAllPlayers.current) {
+        for (const player of state.players) {
+          const prev = prevAllPlayers.current.find(p => p.id === player.id);
+          if (!prev) continue;
+          const prevResIds = new Set(prev.reservedIds);
+          const newReserved = (player.reserved || []).filter(c => !prevResIds.has(c.id));
+          if (newReserved.length > 0) {
+            const isMe = player.id === userId;
+            const targetSelector = isMe
+              ? '.my-reserved'
+              : `[data-player-id="${player.id}"]`;
+            for (const card of newReserved) {
+              // Only animate if card came from the board (has a ref)
+              if (cardRefs.current[card.id]) {
+                animateCardFly(card, targetSelector);
+              }
+            }
+            animationDelay = Math.max(animationDelay, 2900);
+          }
+        }
+      }
+
+      // Detect gem takes for opponents (show popup + fly)
+      if (prevAllPlayers.current) {
+        for (const player of state.players) {
+          if (player.id === userId) continue;
+          const prev = prevAllPlayers.current.find(p => p.id === player.id);
+          if (!prev || !prev.chips) continue;
+          const gained = [];
+          for (const color of ['black', 'white', 'blue', 'green', 'red', 'gold']) {
+            const diff = (player.chips[color] || 0) - (prev.chips[color] || 0);
+            if (diff > 0) {
+              for (let i = 0; i < diff; i++) gained.push(color);
+            }
+          }
+          if (gained.length > 0) {
+            const panelSelector = `[data-player-id="${player.id}"]`;
+            const targetEl = document.querySelector(panelSelector);
+            const targetRect = targetEl
+              ? targetEl.getBoundingClientRect()
+              : { left: window.innerWidth * 0.08, top: window.innerHeight * 0.15, width: 100, height: 30 };
+            const targetX = targetRect.left + targetRect.width / 2;
+            const targetY = targetRect.top + targetRect.height / 2;
+
+            setGemPopup(gained);
+            setTimeout(() => {
+              setGemPopup(null);
+              const cx = window.innerWidth / 2;
+              const cy = window.innerHeight / 2;
+              const spacing = 80;
+              const startOffset = -((gained.length - 1) * spacing) / 2;
+              const newFlying = gained.map((color, i) => ({
+                id: `opp_gem_${color}_${i}_${Date.now()}`,
+                color,
+                startX: cx + startOffset + i * spacing,
+                startY: cy,
+                endX: targetX,
+                endY: targetY,
+              }));
+              setFlyingGems(newFlying);
+              setTimeout(() => setFlyingGems([]), 1100);
+            }, 900);
+
+            animationDelay = Math.max(animationDelay, 2200);
+          }
+        }
+      }
+
+      // Detect noble tile claims — delay after card animation
       if (prevBonusTiles.current) {
+        const nobleClaims = [];
         for (const tile of state.bonusTiles) {
           const prev = prevBonusTiles.current.find(t => t.id === tile.id);
           if (tile.claimedBy && prev && prev.claimedBy !== tile.claimedBy) {
@@ -206,29 +290,38 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
             const panelSelector = isMe
               ? '.player-panel.is-me'
               : `[data-player-id="${tile.claimedBy}"]`;
-            animateNobleClaim(tile.id, panelSelector);
-            animationDelay = Math.max(animationDelay, 1200);
+            nobleClaims.push({ tileId: tile.id, panelSelector });
           }
+        }
+        if (nobleClaims.length > 0) {
+          const nobleStart = animationDelay > 0 ? animationDelay + 800 : 800;
+          setTimeout(() => {
+            for (const { tileId, panelSelector } of nobleClaims) {
+              animateNobleClaim(tileId, panelSelector);
+            }
+          }, nobleStart);
+          animationDelay = nobleStart + 1800;
         }
       }
 
-      // Detect new cards appearing on the board
+      // Detect new replacement cards on the board
       if (prevBoardCards.current) {
-        const newIds = new Set();
+        const addedIds = new Set();
         for (const level of ['level1', 'level2', 'level3']) {
           for (const card of state.board[level]) {
             if (!card.hidden && !prevBoardCards.current.has(card.id)) {
-              newIds.add(card.id);
+              addedIds.add(card.id);
             }
           }
         }
-        if (newIds.size > 0) {
-          // Delay the appear animation to sync with card fly departure
-          const appearDelay = animationDelay > 0 ? animationDelay - 200 : 0;
+        if (addedIds.size > 0) {
+          const stateDelay = animationDelay > 0 ? animationDelay : 0;
+          setTimeout(() => setHiddenBoardCards(addedIds), stateDelay);
           setTimeout(() => {
-            setNewBoardCards(newIds);
+            setHiddenBoardCards(new Set());
+            setNewBoardCards(addedIds);
             setTimeout(() => setNewBoardCards(new Set()), 800);
-          }, appearDelay);
+          }, stateDelay + 1000);
         }
       }
 
@@ -236,6 +329,9 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       prevAllPlayers.current = state.players.map(p => ({
         id: p.id,
         cardIds: p.cards.map(c => c.id),
+        reservedIds: (p.reserved || []).map(c => c.id),
+        reserved: p.reserved || [],
+        chips: { ...p.chips },
       }));
       prevBonusTiles.current = [...state.bonusTiles];
       const boardIds = new Set();
@@ -246,7 +342,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       }
       prevBoardCards.current = boardIds;
 
-      // Apply state — delayed if animations are playing so counts update after fly
+      // Apply state — delayed if animations are playing
       const applyState = () => {
         setGameState(state);
         setActionError('');
@@ -259,6 +355,34 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
         setTimeout(applyState, animationDelay);
       } else {
         applyState();
+      }
+
+      // Mark when animations will be done (+ 500ms buffer between turns)
+      animBusyUntil.current = Date.now() + animationDelay + 500;
+
+      // After all animations done, check for queued states
+      if (animationDelay > 0) {
+        setTimeout(drainQueue, animationDelay + 500);
+      }
+    }
+
+    function drainQueue() {
+      if (pendingStates.current.length > 0) {
+        const next = pendingStates.current.shift();
+        processGameState(next);
+      }
+    }
+
+    socket.on('gameState', (state) => {
+      const now = Date.now();
+      if (now < animBusyUntil.current) {
+        // Animations still playing — queue this state (keep only latest)
+        pendingStates.current = [state];
+        // Schedule drain for when current animations finish
+        const waitTime = animBusyUntil.current - now + 100;
+        setTimeout(drainQueue, waitTime);
+      } else {
+        processGameState(state);
       }
     });
     socket.on('gameNotFound', () => {
@@ -317,8 +441,56 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   }
 
   function handleTakeChips(chips) {
-    if (!isMyTurn) return;
-    socket.emit('takeChips', { gameId, chips });
+    if (!isMyTurn || gemAnimating) return;
+    setGemAnimating(true);
+
+    // Build gem list from selection
+    const gemList = [];
+    for (const [color, count] of Object.entries(chips)) {
+      for (let i = 0; i < count; i++) {
+        gemList.push(color);
+      }
+    }
+
+    // Phase 1: Show gems at screen center
+    setGemPopup(gemList);
+
+    // Phase 2: After hold, fly gems to player panel
+    setTimeout(() => {
+      setGemPopup(null);
+
+      const targetEl = document.querySelector('.player-panel.is-me .player-gem-columns');
+      const targetRect = targetEl
+        ? targetEl.getBoundingClientRect()
+        : { left: window.innerWidth * 0.08, top: window.innerHeight * 0.15, width: 100, height: 30 };
+      const targetX = targetRect.left + targetRect.width / 2;
+      const targetY = targetRect.top + targetRect.height / 2;
+
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+      const spacing = 80;
+      const startOffset = -((gemList.length - 1) * spacing) / 2;
+
+      const newFlying = gemList.map((color, i) => ({
+        id: `gem_${color}_${i}_${Date.now()}`,
+        color,
+        startX: cx + startOffset + i * spacing,
+        startY: cy,
+        endX: targetX,
+        endY: targetY,
+      }));
+
+      setFlyingGems(newFlying);
+
+      // Remove after fly animation
+      setTimeout(() => setFlyingGems([]), 1100);
+
+      // Send action & reset after fly completes
+      setTimeout(() => {
+        socket.emit('takeChips', { gameId, chips });
+        setGemAnimating(false);
+      }, 1200);
+    }, 900);
   }
 
   function handleReturn(chips) {
@@ -427,20 +599,23 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
                 <span className="deck-label">L{level.replace('level', '')}</span>
               </div>
               {gameState.board[level].map(card => {
+                const isHidden = hiddenBoardCards.has(card.id);
                 const isHighlighted = highlightCards.some(h => h.id === card.id);
                 const highlightColor = highlightCards.find(h => h.id === card.id)?.color;
                 const isNew = newBoardCards.has(card.id);
                 return (
                   <div
                     key={card.id}
-                    className={`card-wrapper ${isHighlighted ? 'card-highlight' : ''} ${isNew ? 'card-appear' : ''}`}
+                    className={`card-wrapper ${isHighlighted ? 'card-highlight' : ''} ${isNew ? 'card-appear' : ''} ${isHidden ? 'card-empty-slot' : ''}`}
                     ref={el => cardRefs.current[card.id] = el}
                     style={isHighlighted ? { '--highlight-color': CARD_GLOW[highlightColor] || 'rgba(212,175,55,0.4)' } : undefined}
                   >
-                    <Card
-                      card={card}
-                      onClick={() => isMyTurn && setSelectedCard(card)}
-                    />
+                    {!isHidden && (
+                      <Card
+                        card={card}
+                        onClick={() => isMyTurn && setSelectedCard(card)}
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -448,7 +623,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
           ))}
 
           {/* Chip Bank */}
-          <ChipBank bank={gameState.bank} onTakeChips={handleTakeChips} isMyTurn={isMyTurn} />
+          <ChipBank bank={gameState.bank} onTakeChips={handleTakeChips} isMyTurn={isMyTurn} animating={gemAnimating} />
         </div>
 
         {/* Right: My reserved cards + game log */}
@@ -458,14 +633,16 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
               <h3 onClick={() => setShowReserved(!showReserved)} style={{ cursor: 'pointer' }}>
                 My Reserved ({me.reserved?.length || 0}/3) {showReserved ? '▼' : '▶'}
               </h3>
-              {showReserved && me.reserved?.map(card => (
-                <div key={card.id} className="card-wrapper">
-                  <Card card={card} small />
-                  {isMyTurn && canAffordCard(card) && (
-                    <button className="btn-buy btn-sm" onClick={() => handlePurchase(card.id)}>Buy</button>
-                  )}
-                </div>
-              ))}
+              <div className={showReserved ? 'reserved-cards-list' : 'reserved-cards-list reserved-collapsed'}>
+                {me.reserved?.map(card => (
+                  <div key={card.id} className="card-wrapper" ref={el => reservedRefs.current[card.id] = el}>
+                    <Card card={card} small />
+                    {isMyTurn && canAffordCard(card) && (
+                      <button className="btn-buy btn-sm" onClick={() => handlePurchase(card.id)}>Buy</button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -534,12 +711,58 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
               '--origin-x': `${popupCard.startX}px`,
               '--origin-y': `${popupCard.startY}px`,
               '--card-glow': popupCard.glow,
-              background: popupCard.bg,
-              border: `2px solid ${CARD_GLOW[popupCard.color]}`,
             }}
-          />
+          >
+            <Card card={popupCard.cardData} />
+          </div>
         </div>
       )}
+
+      {/* Gem popup — selected gems appear at screen center */}
+      {gemPopup && gemPopup.length > 0 && (
+        <div className="gem-popup-overlay">
+          <div className="gem-popup-row">
+            {gemPopup.map((color, i) => {
+              const gs = GEM_STYLES[color];
+              return (
+                <div
+                  key={`${color}_${i}`}
+                  className="gem-popup-chip"
+                  style={{
+                    background: gs.bg,
+                    border: gs.border,
+                    boxShadow: `0 0 30px ${gs.glow}, 0 8px 24px rgba(0,0,0,0.4)`,
+                    animationDelay: `${i * 80}ms`,
+                  }}
+                >
+                  <span style={{ color: gs.color, fontWeight: 700, fontSize: '1.1rem' }}>
+                    +1
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Flying gems — from center to player panel */}
+      {flyingGems.map(gem => {
+        const gs = GEM_STYLES[gem.color];
+        return (
+          <div
+            key={gem.id}
+            className="flying-chip"
+            style={{
+              '--start-x': `${gem.startX}px`,
+              '--start-y': `${gem.startY}px`,
+              '--end-x': `${gem.endX}px`,
+              '--end-y': `${gem.endY}px`,
+              background: gs.bg,
+              border: `2px solid ${gs.glow}`,
+            }}
+          />
+        );
+      })}
 
       {/* Flying card animations */}
       {flyingCards.map(fc => (

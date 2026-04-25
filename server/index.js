@@ -201,7 +201,7 @@ function clearPlayerActivity(userId) {
         // If next player is CPU, process
         const next = game.players[game.currentPlayerIndex];
         if (game.phase !== 'ended' && game.cpuPlayers?.includes(next.id) && !next.resigned) {
-          setTimeout(() => processCpuTurn(game), 1200);
+          setTimeout(() => processCpuTurn(game), 3000);
         }
       }
     }
@@ -421,7 +421,7 @@ io.on('connection', (socket) => {
 
     // If first player is CPU, trigger their turn
     if (game.cpuPlayers.includes(game.players[game.currentPlayerIndex].id)) {
-      setTimeout(() => processCpuTurn(game), 1000);
+      setTimeout(() => processCpuTurn(game), 3000);
     }
   });
 
@@ -517,7 +517,7 @@ io.on('connection', (socket) => {
       cleanupGameIfAbandoned(game);
       const next = game.players[game.currentPlayerIndex];
       if (game.phase !== 'ended' && game.cpuPlayers?.includes(next.id) && !next.resigned) {
-        setTimeout(() => processCpuTurn(game), 1200);
+        setTimeout(() => processCpuTurn(game), 3000);
       }
     }
   });
@@ -636,7 +636,7 @@ function finishTurn(game) {
 
   const nextPlayer = game.players[game.currentPlayerIndex];
   if (game.phase !== 'ended' && !nextPlayer.resigned && game.cpuPlayers && game.cpuPlayers.includes(nextPlayer.id)) {
-    setTimeout(() => processCpuTurn(game), 1200);
+    setTimeout(() => processCpuTurn(game), 3000);
   }
 }
 
