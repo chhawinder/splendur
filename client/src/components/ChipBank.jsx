@@ -1,19 +1,50 @@
 import { useState, useRef } from 'react';
-import { COLOR_MAP } from './Card';
 
 const COLORS = ['black', 'white', 'blue', 'green', 'red'];
 
-function lighten(hex) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  const f = 0.45;
-  return `rgb(${Math.min(255, Math.round(r + (255 - r) * f))}, ${Math.min(255, Math.round(g + (255 - g) * f))}, ${Math.min(255, Math.round(b + (255 - b) * f))})`;
-}
+// Premium 3D gem styles for chip bank
+const GEM_STYLES = {
+  black: {
+    bg: 'radial-gradient(circle at 30% 25%, #4a4a6a, #1a1a2e 70%)',
+    glow: 'rgba(212,175,55,0.35)',
+    border: '3px solid rgba(212,175,55,0.4)',
+    color: '#d4af37',
+    shadow: '0 4px 12px rgba(0,0,0,0.5), inset 0 2px 4px rgba(212,175,55,0.1)',
+  },
+  white: {
+    bg: 'radial-gradient(circle at 30% 25%, #ffffff, #d8d8d0 50%, #b0b0a8 100%)',
+    glow: 'rgba(255,255,255,0.3)',
+    border: '3px solid rgba(180,180,180,0.6)',
+    color: '#444',
+    shadow: '0 4px 12px rgba(0,0,0,0.3), inset 0 2px 6px rgba(255,255,255,0.5)',
+  },
+  blue: {
+    bg: 'radial-gradient(circle at 30% 25%, #5b9bd5, #0f3460 65%, #082040 100%)',
+    glow: 'rgba(107,163,214,0.35)',
+    border: '3px solid rgba(107,163,214,0.4)',
+    color: '#e8f4f8',
+    shadow: '0 4px 12px rgba(0,0,0,0.4), inset 0 2px 4px rgba(107,163,214,0.15)',
+  },
+  green: {
+    bg: 'radial-gradient(circle at 30% 25%, #3aa88a, #16423c 65%, #0e2e28 100%)',
+    glow: 'rgba(201,160,99,0.3)',
+    border: '3px solid rgba(201,160,99,0.35)',
+    color: '#c9f5e0',
+    shadow: '0 4px 12px rgba(0,0,0,0.4), inset 0 2px 4px rgba(90,170,138,0.15)',
+  },
+  red: {
+    bg: 'radial-gradient(circle at 30% 25%, #e04040, #8b0000 65%, #5c0000 100%)',
+    glow: 'rgba(255,150,150,0.3)',
+    border: '3px solid rgba(255,204,203,0.35)',
+    color: '#ffcccb',
+    shadow: '0 4px 12px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,150,150,0.12)',
+  },
+};
 
 export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
   const [selected, setSelected] = useState({});
   const [flyingChips, setFlyingChips] = useState([]);
+  const [landPulses, setLandPulses] = useState([]);
   const chipRefs = useRef({});
   const bankRef = useRef(null);
 
@@ -56,8 +87,8 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
   function confirm() {
     if (totalSelected < 2) return;
 
-    // Find the target — the "is-me" player panel
-    const targetEl = document.querySelector('.player-panel.is-me .player-gems');
+    // Find the target — the "is-me" player panel gem area
+    const targetEl = document.querySelector('.player-panel.is-me .player-gem-columns');
     const targetRect = targetEl
       ? targetEl.getBoundingClientRect()
       : { left: window.innerWidth * 0.08, top: window.innerHeight * 0.15, width: 100, height: 30 };
@@ -86,7 +117,7 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
           startY,
           endX: targetX,
           endY: targetY,
-          delay: delay * 100,
+          delay: delay * 120,
         });
         delay++;
       }
@@ -94,8 +125,26 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
 
     setFlyingChips(chips);
 
+    // Add landing pulses staggered to match chip arrivals
+    const pulses = chips.map((chip, i) => ({
+      id: `pulse_${chip.id}`,
+      x: targetX,
+      y: targetY,
+      color: GEM_STYLES[chip.color]?.glow || 'rgba(212,175,55,0.6)',
+      delay: chip.delay + 550, // arrives ~550ms after start
+    }));
+
+    pulses.forEach(pulse => {
+      setTimeout(() => {
+        setLandPulses(prev => [...prev, pulse]);
+        setTimeout(() => {
+          setLandPulses(prev => prev.filter(p => p.id !== pulse.id));
+        }, 500);
+      }, pulse.delay);
+    });
+
     // After animation completes, take chips
-    const totalDuration = 600 + delay * 100;
+    const totalDuration = 750 + delay * 120;
     setTimeout(() => {
       onTakeChips(selected);
       setSelected({});
@@ -113,35 +162,38 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
     <div className="chip-bank" ref={bankRef}>
       <div className="chip-bank-label">Gem Bank</div>
       <div className="chips-row">
-        {COLORS.map(color => (
-          <div key={color} className="chip-stack">
-            <div
-              ref={el => chipRefs.current[color] = el}
-              className={`gem-chip ${selected[color] ? 'gem-selected' : ''} ${bank[color] === 0 ? 'gem-empty' : ''}`}
-              style={{
-                background: `radial-gradient(circle at 30% 30%, ${lighten(COLOR_MAP[color])}, ${COLOR_MAP[color]})`,
-                color: color === 'white' ? '#333' : '#fff',
-                border: color === 'white' ? '3px solid #d4d4d4' : '3px solid rgba(255,255,255,0.15)',
-                boxShadow: selected[color]
-                  ? `0 0 20px ${COLOR_MAP[color]}88, 0 4px 12px rgba(0,0,0,0.4)`
-                  : '0 4px 8px rgba(0,0,0,0.3)',
-              }}
-              onClick={() => bank[color] > 0 && toggleChip(color)}
-            >
-              <span className="gem-chip-count">{bank[color]}</span>
-              {selected[color] && (
-                <span className="gem-chip-badge">+{selected[color]}</span>
-              )}
+        {COLORS.map(color => {
+          const gs = GEM_STYLES[color];
+          return (
+            <div key={color} className="chip-stack">
+              <div
+                ref={el => chipRefs.current[color] = el}
+                className={`gem-chip ${selected[color] ? 'gem-selected' : ''} ${bank[color] === 0 ? 'gem-empty' : ''}`}
+                style={{
+                  background: gs.bg,
+                  color: gs.color,
+                  border: gs.border,
+                  boxShadow: selected[color]
+                    ? `0 0 24px ${gs.glow}, ${gs.shadow}`
+                    : gs.shadow,
+                }}
+                onClick={() => bank[color] > 0 && toggleChip(color)}
+              >
+                <span className="gem-chip-count">{bank[color]}</span>
+                {selected[color] && (
+                  <span className="gem-chip-badge">+{selected[color]}</span>
+                )}
+              </div>
+              <span className="chip-stack-label">{color}</span>
             </div>
-            <span className="chip-stack-label">{color}</span>
-          </div>
-        ))}
+          );
+        })}
         <div className="chip-stack">
           <div className="gem-chip gem-chip-gold" style={{
-            background: 'radial-gradient(circle at 30% 30%, #fde047, #ca8a04)',
-            color: '#78350f',
-            border: '3px solid rgba(255,255,255,0.3)',
-            boxShadow: '0 4px 8px rgba(0,0,0,0.3), inset 0 1px 2px rgba(255,255,255,0.3)',
+            background: 'radial-gradient(circle at 28% 22%, #fde68a, #d4af37 45%, #a67c00 100%)',
+            color: '#5c3d00',
+            border: '3px solid rgba(253,230,138,0.5)',
+            boxShadow: '0 4px 14px rgba(164,124,0,0.4), inset 0 2px 6px rgba(253,230,138,0.25)',
           }}>
             <span className="gem-chip-count">{bank.gold}</span>
             <span className="gem-chip-star">&#9733;</span>
@@ -159,7 +211,7 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
         </div>
       )}
 
-      {/* Flying chips with real positions */}
+      {/* Flying chips with arc trajectory */}
       {flyingChips.map(chip => (
         <div
           key={chip.id}
@@ -170,8 +222,20 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
             '--end-x': `${chip.endX}px`,
             '--end-y': `${chip.endY}px`,
             animationDelay: `${chip.delay}ms`,
-            background: `radial-gradient(circle at 30% 30%, ${lighten(COLOR_MAP[chip.color])}, ${COLOR_MAP[chip.color]})`,
-            border: chip.color === 'white' ? '2px solid #ccc' : '2px solid rgba(255,255,255,0.2)',
+            background: GEM_STYLES[chip.color].bg,
+            border: `2px solid ${GEM_STYLES[chip.color].glow}`,
+          }}
+        />
+      ))}
+      {/* Landing pulse effects */}
+      {landPulses.map(pulse => (
+        <div
+          key={pulse.id}
+          className="chip-land-pulse"
+          style={{
+            '--x': `${pulse.x}px`,
+            '--y': `${pulse.y}px`,
+            '--glow-color': pulse.color,
           }}
         />
       ))}

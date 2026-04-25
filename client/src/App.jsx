@@ -50,9 +50,13 @@ export default function App() {
   }
 
   function handleLeaveGame() {
-    if (isSpectating && socket && gameId) {
-      socket.emit('stopSpectating', { gameId });
-      setIsSpectating(false);
+    if (socket && gameId) {
+      if (isSpectating) {
+        socket.emit('stopSpectating', { gameId });
+        setIsSpectating(false);
+      } else {
+        socket.emit('leaveGame', { gameId });
+      }
     }
     setPage('lobby');
   }
@@ -65,8 +69,35 @@ export default function App() {
     setPage('login');
   }
 
+  // Generate shimmer particles once
+  const particles = Array.from({ length: 20 }, (_, i) => ({
+    id: i,
+    left: `${Math.random() * 100}%`,
+    size: 1.5 + Math.random() * 2.5,
+    duration: 8 + Math.random() * 12,
+    delay: Math.random() * 15,
+    opacity: 0.15 + Math.random() * 0.25,
+  }));
+
   return (
     <div className="app">
+      <div className="shimmer-particles">
+        {particles.map(p => (
+          <div
+            key={p.id}
+            className="shimmer-particle"
+            style={{
+              left: p.left,
+              width: p.size,
+              height: p.size,
+              animationDuration: `${p.duration}s`,
+              animationDelay: `${p.delay}s`,
+              filter: `blur(${p.size > 3 ? 1 : 0}px)`,
+              '--max-opacity': p.opacity,
+            }}
+          />
+        ))}
+      </div>
       {user && (
         <nav className="top-nav">
           <span className="nav-brand">Splendur</span>

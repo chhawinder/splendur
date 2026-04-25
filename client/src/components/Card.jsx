@@ -1,9 +1,10 @@
+// === Premium color palette ===
 const COLOR_MAP = {
-  black: '#2d2d2d',
-  white: '#f5f5f0',
-  blue: '#2563eb',
-  green: '#16a34a',
-  red: '#dc2626',
+  black: '#1a1a2e',
+  white: '#f5f5f5',
+  blue: '#0f3460',
+  green: '#16423c',
+  red: '#8b0000',
 };
 
 const COLOR_EMOJI = {
@@ -14,29 +15,40 @@ const COLOR_EMOJI = {
   red: '🔴',
 };
 
+// Banner gradients — gem-inspired
 const COLOR_GRADIENT = {
-  black: 'linear-gradient(145deg, #3a3a3a 0%, #1a1a1a 100%)',
-  white: 'linear-gradient(145deg, #ffffff 0%, #e8e8e0 100%)',
-  blue: 'linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%)',
-  green: 'linear-gradient(145deg, #22c55e 0%, #15803d 100%)',
-  red: 'linear-gradient(145deg, #ef4444 0%, #b91c1c 100%)',
+  black: 'linear-gradient(145deg, #2a2a3e 0%, #1a1a2e 40%, #0d0d1a 100%)',
+  white: 'linear-gradient(145deg, #ffffff 0%, #f0ede6 40%, #e5e5e5 100%)',
+  blue: 'linear-gradient(145deg, #1e5aab 0%, #0f3460 40%, #0a2444 100%)',
+  green: 'linear-gradient(145deg, #1e6b5a 0%, #16423c 40%, #0e2e28 100%)',
+  red: 'linear-gradient(145deg, #c41e3a 0%, #8b0000 40%, #5c0000 100%)',
 };
 
-// Lighter body backgrounds so cards stand out from the dark game board
-const CARD_BODY_BG = {
-  black: '#3d3d4a',
-  white: '#d0cfc8',
-  blue: '#c7d8f5',
-  green: '#c5e8d4',
-  red: '#f5caca',
+// Card body — glassmorphism tinted backgrounds
+const CARD_BODY = {
+  black: { bg: 'linear-gradient(165deg, rgba(26,26,46,0.85), rgba(13,13,26,0.95))', accent: '#d4af37', border: 'rgba(212,175,55,0.3)' },
+  white: { bg: 'linear-gradient(165deg, rgba(245,245,245,0.9), rgba(229,229,229,0.95))', accent: '#b0b0b0', border: 'rgba(180,180,180,0.5)' },
+  blue:  { bg: 'linear-gradient(165deg, rgba(15,52,96,0.8), rgba(10,36,68,0.95))', accent: '#e8f4f8', border: 'rgba(232,244,248,0.25)' },
+  green: { bg: 'linear-gradient(165deg, rgba(22,66,60,0.8), rgba(14,46,40,0.95))', accent: '#c9a063', border: 'rgba(201,160,99,0.3)' },
+  red:   { bg: 'linear-gradient(165deg, rgba(139,0,0,0.8), rgba(92,0,0,0.95))', accent: '#ffcccb', border: 'rgba(255,204,203,0.3)' },
 };
 
+// Gem icons per color
 const GEM_ICONS = {
   black: '◆',
   white: '◇',
-  blue: '💧',
+  blue: '💎',
   green: '🌿',
-  red: '♥',
+  red: '♦',
+};
+
+// Cost circle colors — vivid gem tones for readability
+const COST_COLORS = {
+  black: { bg: '#1a1a2e', highlight: '#3a3a5a', text: '#d4af37', border: '#d4af37' },
+  white: { bg: '#f0ede6', highlight: '#ffffff', text: '#555', border: '#b0b0b0' },
+  blue:  { bg: '#0f3460', highlight: '#2a6cb8', text: '#e8f4f8', border: '#6ba3d6' },
+  green: { bg: '#16423c', highlight: '#2a7a6a', text: '#c9f5e0', border: '#5aaa8a' },
+  red:   { bg: '#8b0000', highlight: '#cc3333', text: '#ffcccb', border: '#e06060' },
 };
 
 export default function Card({ card, onClick, small }) {
@@ -51,51 +63,59 @@ export default function Card({ card, onClick, small }) {
   }
 
   const costs = Object.entries(card.cost || {}).filter(([, v]) => v > 0);
-  const isWhite = card.discount === 'white';
+  const color = card.discount;
+  const body = CARD_BODY[color];
+  const isWhite = color === 'white';
 
   return (
     <div
-      className={`card ${small ? 'card-small' : ''}`}
+      className={`card card-${color} ${small ? 'card-small' : ''}`}
       style={{
-        background: CARD_BODY_BG[card.discount],
-        borderColor: isWhite ? '#aaa' : undefined,
+        background: body.bg,
+        borderColor: body.border,
       }}
       onClick={onClick}
     >
-      {/* Card top banner with discount color */}
-      <div className="card-banner" style={{ background: COLOR_GRADIENT[card.discount] }}>
-        <span className="card-points-display" style={{ color: isWhite ? '#333' : '#fff' }}>
-          {card.points > 0 ? card.points : ''}
-        </span>
-        <span className="card-gem-icon" style={{ color: isWhite ? '#666' : 'rgba(255,255,255,0.6)' }}>
-          {GEM_ICONS[card.discount]}
+      {/* Veining/texture overlay */}
+      <div className="card-texture" />
+
+      {/* Banner */}
+      <div className="card-banner" style={{ background: COLOR_GRADIENT[color] }}>
+        {card.points > 0 ? (
+          <span className="card-points-display" style={{
+            color: body.accent,
+            textShadow: isWhite ? 'none' : `0 0 12px ${body.accent}44`,
+          }}>
+            {card.points}
+          </span>
+        ) : <span />}
+        <span className="card-gem-icon" style={{
+          color: isWhite ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)',
+        }}>
+          {GEM_ICONS[color]}
         </span>
       </div>
 
       {/* Cost gems */}
       <div className="card-cost-area">
-        {costs.map(([color, count]) => (
-          <div key={color} className="gem-cost">
-            <div className="gem-cost-circle" style={{
-              background: `radial-gradient(circle at 35% 35%, ${lighten(COLOR_MAP[color])}, ${COLOR_MAP[color]})`,
-              color: color === 'white' ? '#333' : '#fff',
-              border: color === 'white' ? '1.5px solid #bbb' : '1.5px solid rgba(255,255,255,0.2)',
-            }}>
-              {count}
+        {costs.map(([c, count]) => {
+          const cc = COST_COLORS[c];
+          return (
+            <div key={c} className="gem-cost">
+              <div className="gem-cost-circle" style={{
+                background: `radial-gradient(circle at 30% 25%, ${cc.highlight}, ${cc.bg})`,
+                color: cc.text,
+                borderColor: cc.border,
+                boxShadow: `0 2px 6px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.15)`,
+              }}>
+                {count}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function lighten(hex) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  const f = 0.45;
-  return `rgb(${Math.min(255, Math.round(r + (255 - r) * f))}, ${Math.min(255, Math.round(g + (255 - g) * f))}, ${Math.min(255, Math.round(b + (255 - b) * f))})`;
-}
-
-export { COLOR_MAP, COLOR_EMOJI, COLOR_GRADIENT, GEM_ICONS };
+export { COLOR_MAP, COLOR_EMOJI, COLOR_GRADIENT, GEM_ICONS, COST_COLORS };
