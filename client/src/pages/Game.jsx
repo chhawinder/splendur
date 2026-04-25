@@ -253,7 +253,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       socket.off('needsReturn');
       socket.off('actionError');
     };
-  }, [socket, userId, isSpectating, gameId, onLeave, animateCardPurchase, animateNobleClaim]);
+  }, [socket, userId, isSpectating, gameId, onLeave, animateCardFly, animateNobleClaim]);
 
   if (!gameState) return <div className="loading">Loading game...</div>;
 

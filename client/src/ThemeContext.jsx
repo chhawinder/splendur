@@ -10,7 +10,10 @@ const THEMES = {
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('splendur-theme') || 'dark';
+    const saved = localStorage.getItem('splendur-theme') || 'dark';
+    // Set immediately so CSS vars are available on first render
+    document.documentElement.setAttribute('data-theme', saved);
+    return saved;
   });
 
   useEffect(() => {
@@ -26,7 +29,9 @@ export function ThemeProvider({ children }) {
 }
 
 export function useTheme() {
-  return useContext(ThemeContext);
+  const ctx = useContext(ThemeContext);
+  // Fallback if used outside provider
+  return ctx || { theme: 'dark', setTheme: () => {}, themes: THEMES };
 }
 
 export { THEMES };
