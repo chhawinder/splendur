@@ -10,6 +10,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [page, setPage] = useState('login');
   const [gameId, setGameId] = useState(null);
+  const [isSpectating, setIsSpectating] = useState(false);
   const [socket, setSocket] = useState(null);
   const [socketUserId, setSocketUserId] = useState(null);
 
@@ -38,7 +39,22 @@ export default function App() {
 
   function handleGameStart(gId) {
     setGameId(gId);
+    setIsSpectating(false);
     setPage('game');
+  }
+
+  function handleSpectate(gId) {
+    setGameId(gId);
+    setIsSpectating(true);
+    setPage('game');
+  }
+
+  function handleLeaveGame() {
+    if (isSpectating && socket && gameId) {
+      socket.emit('stopSpectating', { gameId });
+      setIsSpectating(false);
+    }
+    setPage('lobby');
   }
 
   function handleLogout() {
@@ -55,10 +71,7 @@ export default function App() {
         <nav className="top-nav">
           <span className="nav-brand">Splendur</span>
           <div className="nav-right">
-            {page === 'game' && (
-              <button className="btn-link" onClick={() => setPage('lobby')}>Back to Lobby</button>
-            )}
-            {page !== 'profile' && (
+            {page !== 'profile' && page !== 'login' && (
               <button className="btn-link" onClick={() => setPage('profile')}>Profile</button>
             )}
             <span className="nav-user">{user.username}</span>
@@ -68,9 +81,15 @@ export default function App() {
       )}
 
       {page === 'login' && <Login onLogin={handleLogin} />}
-      {page === 'lobby' && socket && <Lobby socket={socket} user={user} onGameStart={handleGameStart} />}
+      {page === 'lobby' && socket && <Lobby socket={socket} user={user} onGameStart={handleGameStart} onSpectate={handleSpectate} />}
       {page === 'game' && socket && (
-        <Game socket={socket} gameId={gameId} userId={socketUserId || user?.id} />
+        <Game
+          socket={socket}
+          gameId={gameId}
+          userId={socketUserId || user?.id}
+          isSpectating={isSpectating}
+          onLeave={handleLeaveGame}
+        />
       )}
       {page === 'profile' && <Profile onBack={() => setPage('lobby')} />}
     </div>

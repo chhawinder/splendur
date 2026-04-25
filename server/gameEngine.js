@@ -310,24 +310,31 @@ function endTurn(game) {
     game.log.push(`${currentPlayer.name} reached 15 points! Final round begins.`);
   }
 
-  // Move to next player
-  game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
+  // Move to next non-resigned player
+  const numPlayers = game.players.length;
+  for (let i = 0; i < numPlayers; i++) {
+    game.currentPlayerIndex = (game.currentPlayerIndex + 1) % numPlayers;
+    if (!game.players[game.currentPlayerIndex].resigned) break;
+  }
   game.turnNumber++;
 
-  // Check if last round is complete (everyone had equal turns)
+  // Check if last round is complete (back to first player or past trigger point)
   if (game.phase === 'lastRound' && game.currentPlayerIndex === 0) {
     game.phase = 'ended';
-    // Determine winner
+    // Determine winner among non-resigned players
+    const activePlayers = game.players.filter(p => !p.resigned);
     let maxPoints = -1;
     let winner = null;
-    for (const p of game.players) {
-      if (p.points > maxPoints || (p.points === maxPoints && p.cards.length < winner.cards.length)) {
+    for (const p of activePlayers) {
+      if (p.points > maxPoints || (p.points === maxPoints && (!winner || p.cards.length < winner.cards.length))) {
         maxPoints = p.points;
         winner = p;
       }
     }
-    game.winner = winner.id;
-    game.log.push(`Game over! ${winner.name} wins with ${winner.points} points!`);
+    if (winner) {
+      game.winner = winner.id;
+      game.log.push(`Game over! ${winner.name} wins with ${winner.points} points!`);
+    }
   }
 
   return game;
@@ -348,6 +355,7 @@ function getPublicGameState(game, forPlayerId) {
       reserved: p.id === forPlayerId ? p.reserved : p.reserved.map(c => ({ id: c.id, hidden: true })),
       bonusTiles: p.bonusTiles,
       points: p.points,
+      resigned: p.resigned || false,
     })),
     currentPlayerIndex: game.currentPlayerIndex,
     currentPlayerId: game.players[game.currentPlayerIndex].id,

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 
-export default function Lobby({ socket, user, onGameStart }) {
+export default function Lobby({ socket, user, onGameStart, onSpectate }) {
   const [lobbies, setLobbies] = useState([]);
+  const [activeGames, setActiveGames] = useState([]);
   const [currentLobby, setCurrentLobby] = useState(null);
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [gameName, setGameName] = useState('');
@@ -15,6 +16,7 @@ export default function Lobby({ socket, user, onGameStart }) {
     if (socket.userId) setMySocketId(socket.userId);
     socket.emit('getLobbies');
     socket.on('lobbiesList', setLobbies);
+    socket.on('activeGamesList', setActiveGames);
     socket.on('lobbyCreated', setCurrentLobby);
     socket.on('lobbyUpdated', setCurrentLobby);
     socket.on('gameStarted', ({ gameId }) => onGameStart(gameId));
@@ -24,15 +26,21 @@ export default function Lobby({ socket, user, onGameStart }) {
       setCurrentLobby(null);
       socket.emit('getLobbies');
     });
+    socket.on('lobbyKicked', () => {
+      setCurrentLobby(null);
+      socket.emit('getLobbies');
+    });
 
     return () => {
       socket.off('lobbiesList');
+      socket.off('activeGamesList');
       socket.off('lobbyCreated');
       socket.off('lobbyUpdated');
       socket.off('gameStarted');
       socket.off('error');
       socket.off('lobbyLeft');
       socket.off('lobbyClosed');
+      socket.off('lobbyKicked');
       socket.off('connected');
     };
   }, [socket, onGameStart]);
@@ -51,6 +59,10 @@ export default function Lobby({ socket, user, onGameStart }) {
     if (currentLobby) socket.emit('addCPU', { lobbyId: currentLobby.id });
   }
 
+  function kickPlayer(playerId) {
+    if (currentLobby) socket.emit('kickPlayer', { lobbyId: currentLobby.id, playerId });
+  }
+
   function startGame() {
     if (currentLobby) socket.emit('startGame', { lobbyId: currentLobby.id });
   }
@@ -62,6 +74,11 @@ export default function Lobby({ socket, user, onGameStart }) {
     }
   }
 
+  function spectateGame(gameId) {
+    socket.emit('spectateGame', { gameId });
+    onSpectate(gameId);
+  }
+
   if (currentLobby) {
     return (
       <div className="lobby-page">
@@ -69,27 +86,42 @@ export default function Lobby({ socket, user, onGameStart }) {
           <h2>{currentLobby.name}</h2>
           <p className="lobby-info">Players: {currentLobby.players.length}/{currentLobby.maxPlayers}</p>
           <div className="player-list">
-            {currentLobby.players.map(p => (
-              <div key={p.id} className={`player-slot ${p.isCPU ? 'cpu' : ''}`}>
-                {p.isCPU ? '🤖' : '👤'} {p.name}
-                {p.id === currentLobby.host && ' (Host)'}
+            {currentLobby.players.map(p => {
+              const isHost = p.id === currentLobby.host;
+              const iAmHost = currentLobby.host === mySocketId || currentLobby.host === user?.id;
+              return (
+                <div key={p.id} className={`player-slot ${p.isCPU ? 'cpu' : ''}`}>
+                  <div className="player-slot-info">
+                    {p.isCPU ? '🤖' : '👤'} {p.name}
+                    {isHost && <span className="host-badge">Host</span>}
+                  </div>
+                  {iAmHost && !isHost && (
+                    <button className="btn-kick" onClick={() => kickPlayer(p.id)} title="Remove player">
+                      &times;
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            {(currentLobby.host === mySocketId || currentLobby.host === user?.id) &&
+              currentLobby.players.length < currentLobby.maxPlayers && (
+              <div className="player-slot add-slot" onClick={addCPU}>
+                <span className="add-icon">+</span>
+                <span>Add CPU</span>
               </div>
-            ))}
+            )}
           </div>
-          {(currentLobby.host === mySocketId || currentLobby.host === user?.id) ? (
-            <div className="lobby-actions">
-              {currentLobby.players.length < currentLobby.maxPlayers && (
-                <button className="btn-secondary" onClick={addCPU}>Add CPU</button>
-              )}
-              {currentLobby.players.length >= 2 && (
-                <button className="btn-primary" onClick={startGame}>Start Game</button>
-              )}
-            </div>
-          ) : (
-            <p className="waiting">Waiting for host to start...</p>
-          )}
-          <div className="lobby-actions" style={{ marginTop: '12px' }}>
-            <button className="btn-danger" onClick={leaveLobby}>Leave Lobby</button>
+          <div className="lobby-actions">
+            {(currentLobby.host === mySocketId || currentLobby.host === user?.id) ? (
+              <>
+                {currentLobby.players.length >= 2 && (
+                  <button className="btn-primary" onClick={startGame}>Start</button>
+                )}
+              </>
+            ) : (
+              <p className="waiting">Waiting for host to start...</p>
+            )}
+            <button className="btn-danger" onClick={leaveLobby}>Leave</button>
           </div>
         </div>
       </div>
@@ -137,6 +169,23 @@ export default function Lobby({ socket, user, onGameStart }) {
           ))
         )}
       </div>
+
+      {activeGames.length > 0 && (
+        <div className="active-games">
+          <h3>Live Games — Watch</h3>
+          {activeGames.map(game => (
+            <div key={game.id} className="lobby-item live-game-item">
+              <div>
+                <strong>{game.players.map(p => p.name).join(' vs ')}</strong>
+                <span className="game-status">
+                  Turn {game.turnNumber} — {game.players.map(p => `${p.name}: ${p.points}pts`).join(', ')}
+                </span>
+              </div>
+              <button className="btn-spectate" onClick={() => spectateGame(game.id)}>Watch</button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

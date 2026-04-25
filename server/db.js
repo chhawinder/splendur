@@ -21,6 +21,13 @@ db.exec(`
   )
 `);
 
+// Add cpu_games column if missing
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN cpu_games INTEGER DEFAULT 0`);
+} catch (e) {
+  // column already exists
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS badges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,7 +66,7 @@ function getUserByGoogleId(googleId) {
 
 function getUserById(id) {
   return db.prepare(`SELECT id, username, email, avatar, rating, wins, losses,
-    total_games, current_streak, best_streak, last_played, created_at FROM users WHERE id = ?`).get(id);
+    total_games, cpu_games, current_streak, best_streak, last_played, created_at FROM users WHERE id = ?`).get(id);
 }
 
 function updateRating(id, rating, won) {
@@ -131,8 +138,24 @@ function awardBadge(userId, badgeKey) {
   }
 }
 
+function recordGamePlayed(id, vsCPU = false) {
+  const today = new Date().toISOString().split('T')[0];
+  if (vsCPU) {
+    db.prepare(`UPDATE users SET total_games = total_games + 1, cpu_games = cpu_games + 1, last_played = ? WHERE id = ?`).run(today, id);
+  } else {
+    db.prepare(`UPDATE users SET total_games = total_games + 1, last_played = ? WHERE id = ?`).run(today, id);
+  }
+
+  const existing = db.prepare('SELECT * FROM daily_stats WHERE user_id = ? AND date = ?').get(id, today);
+  if (existing) {
+    db.prepare('UPDATE daily_stats SET games_played = games_played + 1 WHERE user_id = ? AND date = ?').run(id, today);
+  } else {
+    db.prepare('INSERT INTO daily_stats (user_id, date, games_played, games_won) VALUES (?, ?, 1, 0)').run(id, today);
+  }
+}
+
 module.exports = {
   createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById,
-  updateRating, getDailyStats, getWeeklyStats, getPlayStreak,
+  updateRating, recordGamePlayed, getDailyStats, getWeeklyStats, getPlayStreak,
   getUserBadges, awardBadge
 };

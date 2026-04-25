@@ -7,13 +7,14 @@ import ResignModal from '../components/ResignModal';
 import BadgeNotification from '../components/BadgeNotification';
 import { COLOR_EMOJI } from '../components/Card';
 
-export default function Game({ socket, gameId, userId }) {
+export default function Game({ socket, gameId, userId, isSpectating, onLeave }) {
   const [gameState, setGameState] = useState(null);
   const [showReturn, setShowReturn] = useState(false);
   const [returnChips, setReturnChipsData] = useState(null);
   const [actionError, setActionError] = useState('');
   const [showReserved, setShowReserved] = useState(false);
   const [showResign, setShowResign] = useState(false);
+  const [selectedCard, setSelectedCard] = useState(null);
   const [newBadges, setNewBadges] = useState(null);
 
   useEffect(() => {
@@ -42,8 +43,10 @@ export default function Game({ socket, gameId, userId }) {
 
   if (!gameState) return <div className="loading">Loading game...</div>;
 
-  const me = gameState.players.find(p => p.id === userId);
-  const isMyTurn = gameState.currentPlayerId === userId;
+  const me = isSpectating ? null : gameState.players.find(p => p.id === userId);
+  const isMyTurn = !isSpectating && gameState.currentPlayerId === userId;
+  const gameActive = gameState.phase !== 'ended' && me && !me.resigned;
+
   const canAffordCard = (card) => {
     if (!me || !card || card.hidden) return false;
     const discounts = {};
@@ -82,23 +85,36 @@ export default function Game({ socket, gameId, userId }) {
     setShowReturn(false);
   }
 
-  function handleResign() {
-    setShowResign(true);
+  function handleBackToLobby() {
+    if (gameActive) {
+      // Game is still going — show resign confirmation
+      setShowResign(true);
+    } else {
+      // Game ended, spectating, or already resigned — go straight back
+      onLeave();
+    }
   }
 
   function confirmResign() {
     socket.emit('resign', { gameId });
     setShowResign(false);
+    onLeave();
   }
 
   return (
     <div className="game-page">
+      {isSpectating && (
+        <div className="spectator-banner">Spectating</div>
+      )}
+
       {gameState.phase === 'ended' && (
         <div className="game-over-banner">
           <div className="game-over-title">
-            {gameState.winner === userId ? '🎉 You Win!' : `Game Over - ${gameState.players.find(p => p.id === gameState.winner)?.name} wins!`}
+            {!isSpectating && gameState.winner === userId
+              ? '🎉 You Win!'
+              : `Game Over - ${gameState.players.find(p => p.id === gameState.winner)?.name} wins!`}
           </div>
-          {gameState.ratingChanges && gameState.ratingChanges[userId] && (
+          {!isSpectating && gameState.ratingChanges && gameState.ratingChanges[userId] && (
             <div className="rating-change">
               Rating: {gameState.ratingChanges[userId].newRating} ({gameState.ratingChanges[userId].change})
             </div>
@@ -153,20 +169,8 @@ export default function Game({ socket, gameId, userId }) {
                 <div key={card.id} className="card-wrapper">
                   <Card
                     card={card}
-                    affordable={canAffordCard(card)}
-                    onClick={() => {
-                      if (!isMyTurn) return;
-                      if (canAffordCard(card)) handlePurchase(card.id);
-                    }}
+                    onClick={() => isMyTurn && setSelectedCard(card)}
                   />
-                  {isMyTurn && (
-                    <div className="card-actions-overlay">
-                      {canAffordCard(card) && (
-                        <button className="btn-buy" onClick={() => handlePurchase(card.id)}>Buy</button>
-                      )}
-                      <button className="btn-reserve" onClick={() => handleReserve(card.id)}>Hold</button>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -185,7 +189,7 @@ export default function Game({ socket, gameId, userId }) {
               </h3>
               {showReserved && me.reserved?.map(card => (
                 <div key={card.id} className="card-wrapper">
-                  <Card card={card} small affordable={canAffordCard(card)} />
+                  <Card card={card} small />
                   {isMyTurn && canAffordCard(card) && (
                     <button className="btn-buy btn-sm" onClick={() => handlePurchase(card.id)}>Buy</button>
                   )}
@@ -202,14 +206,41 @@ export default function Game({ socket, gameId, userId }) {
           </div>
 
           <div className="turn-indicator">
-            {isMyTurn ? "🟢 Your turn!" : `Waiting for ${gameState.players[gameState.currentPlayerIndex]?.name}...`}
+            {isSpectating
+              ? `${gameState.players[gameState.currentPlayerIndex]?.name}'s turn`
+              : isMyTurn ? "🟢 Your turn!" : `Waiting for ${gameState.players[gameState.currentPlayerIndex]?.name}...`}
           </div>
 
-          {gameState.phase !== 'ended' && (
-            <button className="btn-danger btn-resign" onClick={handleResign}>Resign</button>
-          )}
+          <button
+            className={gameActive ? 'btn-danger btn-resign' : 'btn-secondary btn-resign'}
+            onClick={handleBackToLobby}
+          >
+            {isSpectating ? 'Stop Watching' : gameActive ? 'Resign & Leave' : 'Back to Lobby'}
+          </button>
         </div>
       </div>
+
+      {/* Card action modal */}
+      {selectedCard && (
+        <div className="card-modal-overlay" onClick={() => setSelectedCard(null)}>
+          <div className="card-modal" onClick={e => e.stopPropagation()}>
+            <button className="card-modal-close" onClick={() => setSelectedCard(null)}>&times;</button>
+            <div className="card-modal-preview">
+              <Card card={selectedCard} />
+            </div>
+            <div className="card-modal-actions">
+              <button className="btn-card-buy" onClick={() => {
+                handlePurchase(selectedCard.id);
+                setSelectedCard(null);
+              }}>Buy</button>
+              <button className="btn-card-hold" onClick={() => {
+                handleReserve(selectedCard.id);
+                setSelectedCard(null);
+              }}>Hold</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showReturn && returnChips && (
         <ReturnChipsModal currentChips={returnChips} onReturn={handleReturn} />

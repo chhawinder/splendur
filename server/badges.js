@@ -39,6 +39,12 @@ const BADGE_DEFS = {
   login_7_days:    { name: 'Weekly Ritual',      icon: '🗓️',  desc: 'Play 7 days in a row',              category: 'loyalty' },
   login_14_days:   { name: 'Addicted',           icon: '🧲',  desc: 'Play 14 days in a row',             category: 'loyalty' },
   login_30_days:   { name: 'Splendur Veteran',   icon: '🎖️',  desc: 'Play 30 days in a row',             category: 'loyalty' },
+
+  // === CPU BADGES ===
+  cpu_1:           { name: 'Bot Basher',         icon: '🤖',  desc: 'Play a game against CPU',           category: 'cpu' },
+  cpu_5:           { name: 'Bot Bully',          icon: '🦾',  desc: 'Play 5 games against CPU',          category: 'cpu' },
+  cpu_10:          { name: 'Machine Slayer',     icon: '⚙️',  desc: 'Play 10 games against CPU',         category: 'cpu' },
+  cpu_25:          { name: 'AI Overlord',        icon: '🧠',  desc: 'Play 25 games against CPU',         category: 'cpu' },
 };
 
 function checkAndAwardBadges(userId) {
@@ -98,6 +104,13 @@ function checkAndAwardBadges(userId) {
   if (playStreak >= 7)  tryAward('login_7_days');
   if (playStreak >= 14) tryAward('login_14_days');
   if (playStreak >= 30) tryAward('login_30_days');
+
+  // CPU badges
+  const cpuGames = user.cpu_games || 0;
+  if (cpuGames >= 1)  tryAward('cpu_1');
+  if (cpuGames >= 5)  tryAward('cpu_5');
+  if (cpuGames >= 10) tryAward('cpu_10');
+  if (cpuGames >= 25) tryAward('cpu_25');
 
   return newBadges;
 }
