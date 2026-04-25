@@ -22,8 +22,11 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json());
 
-// Serve static files in production
-app.use(express.static(path.join(__dirname, '..', 'client', 'dist')));
+// Serve static files in production (only if client build exists)
+const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+if (require('fs').existsSync(clientDistPath)) {
+  app.use(express.static(clientDistPath));
+}
 
 // ============ AUTH ROUTES ============
 app.post('/api/auth/google', async (req, res) => {
@@ -103,10 +106,12 @@ app.get('/api/profile', authMiddleware, (req, res) => {
   res.json({ user, badges, daily, weekly });
 });
 
-// Catch-all for SPA
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'client', 'dist', 'index.html'));
-});
+// Catch-all for SPA (only if client build exists)
+if (require('fs').existsSync(path.join(clientDistPath, 'index.html'))) {
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientDistPath, 'index.html'));
+  });
+}
 
 // ============ GAME STATE ============
 const lobbies = new Map(); // lobbyId -> { id, name, host, players: [{id,name,isCPU}], maxPlayers, started }
