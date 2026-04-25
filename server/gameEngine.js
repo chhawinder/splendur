@@ -57,7 +57,7 @@ function computePayment(card, playerChips, playerCards) {
   return payment;
 }
 
-function createGame(playerIds, playerNames) {
+function createGame(playerIds, playerNames, targetScore) {
   const numPlayers = playerIds.length;
 
   // Chip counts based on player count
@@ -111,6 +111,7 @@ function createGame(playerIds, playerNames) {
     currentPlayerIndex: 0,
     turnNumber: 0,
     round: 0,
+    targetScore: targetScore || 15,
     phase: 'playing', // playing, lastRound, ended
     lastRoundTriggeredBy: null,
     winner: null,
@@ -313,10 +314,11 @@ function endTurn(game) {
   checkBonusTiles(game, currentPlayer.id);
 
   // Check if game should end
-  if (currentPlayer.points >= 15 && game.phase === 'playing') {
+  const winTarget = game.targetScore || 15;
+  if (currentPlayer.points >= winTarget && game.phase === 'playing') {
     game.phase = 'lastRound';
     game.lastRoundTriggeredBy = game.currentPlayerIndex;
-    game.log.push(`${currentPlayer.name} reached 15 points! Final round begins.`);
+    game.log.push(`${currentPlayer.name} reached ${winTarget} points! Final round begins.`);
   }
 
   // Move to next non-resigned player

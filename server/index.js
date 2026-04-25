@@ -233,7 +233,7 @@ io.on('connection', (socket) => {
   socket.emit('connected', { userId: socket.userId, username: socket.username });
 
   // ---- LOBBY ----
-  socket.on('createLobby', ({ name, maxPlayers }) => {
+  socket.on('createLobby', ({ name, maxPlayers, targetScore }) => {
     // Must not be in an active game
     const activity = playerActivity.get(socket.userId);
     if (activity) {
@@ -247,6 +247,7 @@ io.on('connection', (socket) => {
       host: socket.userId,
       players: [{ id: socket.userId, name: socket.username, isCPU: false }],
       maxPlayers: maxPlayers || 2,
+      targetScore: targetScore || 15,
       started: false,
     };
     lobbies.set(lobbyId, lobby);
@@ -391,7 +392,7 @@ io.on('connection', (socket) => {
     lobby.started = true;
     const playerIds = lobby.players.map(p => p.id);
     const playerNames = lobby.players.map(p => p.name);
-    const game = createGame(playerIds, playerNames);
+    const game = createGame(playerIds, playerNames, lobby.targetScore);
     game.lobbyId = lobbyId;
     game.cpuPlayers = lobby.players.filter(p => p.isCPU).map(p => p.id);
     activeGames.set(game.id, game);

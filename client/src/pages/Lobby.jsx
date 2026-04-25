@@ -5,6 +5,7 @@ export default function Lobby({ socket, user, onGameStart, onSpectate }) {
   const [activeGames, setActiveGames] = useState([]);
   const [currentLobby, setCurrentLobby] = useState(null);
   const [maxPlayers, setMaxPlayers] = useState(2);
+  const [targetScore, setTargetScore] = useState(15);
   const [gameName, setGameName] = useState('');
   const [mySocketId, setMySocketId] = useState(socket.userId || user?.id || null);
 
@@ -46,7 +47,7 @@ export default function Lobby({ socket, user, onGameStart, onSpectate }) {
   }, [socket, onGameStart]);
 
   function createLobby() {
-    socket.emit('createLobby', { name: gameName || undefined, maxPlayers });
+    socket.emit('createLobby', { name: gameName || undefined, maxPlayers, targetScore });
   }
 
   function joinLobby(lobbyId) {
@@ -84,7 +85,7 @@ export default function Lobby({ socket, user, onGameStart, onSpectate }) {
       <div className="lobby-page">
         <div className="lobby-room">
           <h2>{currentLobby.name}</h2>
-          <p className="lobby-info">Players: {currentLobby.players.length}/{currentLobby.maxPlayers}</p>
+          <p className="lobby-info">Players: {currentLobby.players.length}/{currentLobby.maxPlayers} &middot; Target: {currentLobby.targetScore || 15} pts</p>
           <div className="player-list">
             {currentLobby.players.map(p => {
               const isHost = p.id === currentLobby.host;
@@ -148,6 +149,10 @@ export default function Lobby({ socket, user, onGameStart, onSpectate }) {
             <option value={2}>2 Players</option>
             <option value={3}>3 Players</option>
             <option value={4}>4 Players</option>
+          </select>
+          <select value={targetScore} onChange={e => setTargetScore(Number(e.target.value))}>
+            <option value={15}>15 Points</option>
+            <option value={21}>21 Points</option>
           </select>
           <button className="btn-primary" onClick={createLobby}>Create</button>
         </div>

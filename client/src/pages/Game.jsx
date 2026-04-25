@@ -220,11 +220,11 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
           const newReserved = (player.reserved || []).filter(c => !prevResIds.has(c.id));
           if (newReserved.length > 0) {
             const isMe = player.id === userId;
+            if (isMe) setShowReserved(true); // auto-expand reserved section
             const targetSelector = isMe
               ? '.my-reserved'
               : `[data-player-id="${player.id}"]`;
             for (const card of newReserved) {
-              // Only animate if card came from the board (has a ref)
               if (cardRefs.current[card.id]) {
                 animateCardFly(card, targetSelector);
               }
@@ -395,7 +395,6 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     });
     socket.on('actionError', ({ message }) => {
       setActionError(message);
-      setTimeout(() => setActionError(''), 3000);
     });
 
     return () => {
@@ -533,7 +532,14 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
         </div>
       )}
 
-      {actionError && <div className="action-error">{actionError}</div>}
+      {actionError && (
+        <div className="error-popup-overlay" onClick={() => setActionError('')}>
+          <div className="error-popup" onClick={e => e.stopPropagation()}>
+            <p>{actionError}</p>
+            <button className="btn-primary" onClick={() => setActionError('')}>OK</button>
+          </div>
+        </div>
+      )}
 
       <div className="game-layout">
         {/* Left: Players */}
