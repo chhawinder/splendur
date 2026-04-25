@@ -162,6 +162,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     socket.emit('getGameState', { gameId });
 
     socket.on('gameState', (state) => {
+      let animationDelay = 0; // delay state update if animations are playing
+
       // Detect card purchases for ALL players (highlight + fly)
       if (prevAllPlayers.current) {
         for (const player of state.players) {
@@ -177,6 +179,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
             for (const card of newCards) {
               animateCardFly(card.id, card.discount, panelSelector);
             }
+            // highlight(800ms) + fly(1.5s) — update state when fly is ~60% done
+            animationDelay = Math.max(animationDelay, 1700);
           }
         }
       }
@@ -191,6 +195,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
               ? '.player-panel.is-me'
               : `[data-player-id="${tile.claimedBy}"]`;
             animateNobleClaim(tile.id, panelSelector);
+            animationDelay = Math.max(animationDelay, 1200);
           }
         }
       }
@@ -207,14 +212,15 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
         }
         if (newIds.size > 0) {
           // Delay the appear animation to sync with card fly departure
+          const appearDelay = animationDelay > 0 ? animationDelay - 200 : 0;
           setTimeout(() => {
             setNewBoardCards(newIds);
             setTimeout(() => setNewBoardCards(new Set()), 800);
-          }, 900);
+          }, appearDelay);
         }
       }
 
-      // Store previous state for diffing
+      // Store previous state for diffing (always immediate)
       prevAllPlayers.current = state.players.map(p => ({
         id: p.id,
         cardIds: p.cards.map(c => c.id),
@@ -228,10 +234,19 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       }
       prevBoardCards.current = boardIds;
 
-      setGameState(state);
-      setActionError('');
-      if (state.newBadges && state.newBadges.length > 0) {
-        setNewBadges(state.newBadges);
+      // Apply state — delayed if animations are playing so counts update after fly
+      const applyState = () => {
+        setGameState(state);
+        setActionError('');
+        if (state.newBadges && state.newBadges.length > 0) {
+          setNewBadges(state.newBadges);
+        }
+      };
+
+      if (animationDelay > 0) {
+        setTimeout(applyState, animationDelay);
+      } else {
+        applyState();
       }
     });
     socket.on('gameNotFound', () => {

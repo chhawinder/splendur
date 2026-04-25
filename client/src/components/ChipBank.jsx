@@ -97,7 +97,7 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
     const targetX = targetRect.left + targetRect.width / 2;
     const targetY = targetRect.top + targetRect.height / 2;
 
-    // Collect chip info with staggered spawning
+    // Collect chips — one by one with clear spacing between each
     const chipQueue = [];
     let idx = 0;
     for (const [color, count] of Object.entries(selected)) {
@@ -112,24 +112,24 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
 
       for (let i = 0; i < count; i++) {
         chipQueue.push({
-          id: `${color}_${i}_${Date.now()}`,
+          id: `${color}_${i}_${Date.now()}_${idx}`,
           color,
           startX,
           startY,
           endX: targetX,
           endY: targetY,
-          spawnDelay: idx * 200,
+          spawnDelay: idx * 500, // 500ms gap — one chip clearly finishes arc before next starts
         });
         idx++;
       }
     }
 
-    // Spawn each chip with a staggered delay
+    // Spawn each chip one by one
     chipQueue.forEach(chip => {
       setTimeout(() => {
         setFlyingChips(prev => [...prev, chip]);
 
-        // Remove this chip after its animation completes (1.3s)
+        // Remove after animation (1.3s)
         setTimeout(() => {
           setFlyingChips(prev => prev.filter(c => c.id !== chip.id));
         }, 1350);
@@ -145,14 +145,14 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
           }]);
           setTimeout(() => {
             setLandPulses(prev => prev.filter(p => p.id !== pulseId));
-          }, 500);
+          }, 700);
         }, 950);
       }, chip.spawnDelay);
     });
 
     // After all animations done, send the action
     const lastSpawn = chipQueue.length > 0 ? chipQueue[chipQueue.length - 1].spawnDelay : 0;
-    const totalDuration = lastSpawn + 1400;
+    const totalDuration = lastSpawn + 1500;
     setTimeout(() => {
       onTakeChips(selected);
       setSelected({});
