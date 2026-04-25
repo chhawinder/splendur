@@ -1,3 +1,5 @@
+import { useTheme } from '../ThemeContext';
+
 // === Premium color palette ===
 const COLOR_MAP = {
   black: '#1a1a2e',
@@ -24,13 +26,29 @@ const COLOR_GRADIENT = {
   red: 'linear-gradient(145deg, #c41e3a 0%, #8b0000 40%, #5c0000 100%)',
 };
 
-// Card body — glassmorphism tinted backgrounds
-const CARD_BODY = {
-  black: { bg: 'linear-gradient(165deg, rgba(26,26,46,0.85), rgba(13,13,26,0.95))', accent: '#d4af37', border: 'rgba(212,175,55,0.3)' },
-  white: { bg: 'linear-gradient(165deg, rgba(245,245,245,0.9), rgba(229,229,229,0.95))', accent: '#b0b0b0', border: 'rgba(180,180,180,0.5)' },
-  blue:  { bg: 'linear-gradient(165deg, rgba(15,52,96,0.8), rgba(10,36,68,0.95))', accent: '#e8f4f8', border: 'rgba(232,244,248,0.25)' },
-  green: { bg: 'linear-gradient(165deg, rgba(22,66,60,0.8), rgba(14,46,40,0.95))', accent: '#c9a063', border: 'rgba(201,160,99,0.3)' },
-  red:   { bg: 'linear-gradient(165deg, rgba(139,0,0,0.8), rgba(92,0,0,0.95))', accent: '#ffcccb', border: 'rgba(255,204,203,0.3)' },
+// Card body — theme-aware backgrounds
+const CARD_BODY_THEMES = {
+  dark: {
+    black: { bg: 'linear-gradient(165deg, rgba(26,26,46,0.85), rgba(13,13,26,0.95))', accent: '#d4af37', border: 'rgba(212,175,55,0.3)' },
+    white: { bg: 'linear-gradient(165deg, rgba(245,245,245,0.9), rgba(229,229,229,0.95))', accent: '#b0b0b0', border: 'rgba(180,180,180,0.5)' },
+    blue:  { bg: 'linear-gradient(165deg, rgba(15,52,96,0.8), rgba(10,36,68,0.95))', accent: '#e8f4f8', border: 'rgba(232,244,248,0.25)' },
+    green: { bg: 'linear-gradient(165deg, rgba(22,66,60,0.8), rgba(14,46,40,0.95))', accent: '#c9a063', border: 'rgba(201,160,99,0.3)' },
+    red:   { bg: 'linear-gradient(165deg, rgba(139,0,0,0.8), rgba(92,0,0,0.95))', accent: '#ffcccb', border: 'rgba(255,204,203,0.3)' },
+  },
+  champagne: {
+    black: { bg: 'linear-gradient(165deg, #2a2a3e, #1a1a2e)', accent: '#d4af37', border: 'rgba(212,175,55,0.4)' },
+    white: { bg: 'linear-gradient(165deg, #faf8f5, #ece8e0)', accent: '#a09080', border: 'rgba(180,155,100,0.4)' },
+    blue:  { bg: 'linear-gradient(165deg, #1e5aab, #0f3460)', accent: '#e8f4f8', border: 'rgba(107,163,214,0.35)' },
+    green: { bg: 'linear-gradient(165deg, #1e6b5a, #16423c)', accent: '#c9f5e0', border: 'rgba(90,170,138,0.35)' },
+    red:   { bg: 'linear-gradient(165deg, #c41e3a, #8b0000)', accent: '#ffcccb', border: 'rgba(255,150,150,0.35)' },
+  },
+  burgundy: {
+    black: { bg: 'linear-gradient(165deg, rgba(20,20,35,0.9), rgba(10,10,20,0.95))', accent: '#e8c46c', border: 'rgba(232,196,108,0.35)' },
+    white: { bg: 'linear-gradient(165deg, rgba(245,240,235,0.92), rgba(225,220,210,0.95))', accent: '#8a7060', border: 'rgba(180,150,120,0.5)' },
+    blue:  { bg: 'linear-gradient(165deg, rgba(20,80,170,0.85), rgba(10,40,100,0.95))', accent: '#a0d4f0', border: 'rgba(120,180,230,0.35)' },
+    green: { bg: 'linear-gradient(165deg, rgba(15,100,80,0.85), rgba(10,60,50,0.95))', accent: '#80e8b8', border: 'rgba(80,200,140,0.35)' },
+    red:   { bg: 'linear-gradient(165deg, rgba(200,30,50,0.85), rgba(140,0,0,0.95))', accent: '#ffb0b0', border: 'rgba(255,160,160,0.35)' },
+  },
 };
 
 // Gem icons per color
@@ -52,6 +70,8 @@ const COST_COLORS = {
 };
 
 export default function Card({ card, onClick, small }) {
+  const { theme } = useTheme();
+
   if (!card || card.hidden) {
     return (
       <div className={`card card-hidden ${small ? 'card-small' : ''}`} onClick={onClick}>
@@ -64,7 +84,7 @@ export default function Card({ card, onClick, small }) {
 
   const costs = Object.entries(card.cost || {}).filter(([, v]) => v > 0);
   const color = card.discount;
-  const body = CARD_BODY[color];
+  const body = (CARD_BODY_THEMES[theme] || CARD_BODY_THEMES.dark)[color];
   const isWhite = color === 'white';
 
   return (

@@ -4,9 +4,36 @@ import Lobby from './pages/Lobby';
 import Game from './pages/Game';
 import Profile from './pages/Profile';
 import { getSocket, resetSocket } from './socket';
+import { ThemeProvider, useTheme, THEMES } from './ThemeContext';
 import './App.css';
 
+function ThemeSwitcher() {
+  const { theme, setTheme, themes } = useTheme();
+  return (
+    <div className="theme-switcher">
+      {Object.values(themes).map(t => (
+        <button
+          key={t.name}
+          className={`theme-btn ${theme === t.name ? 'active' : ''}`}
+          onClick={() => setTheme(t.name)}
+          title={t.label}
+        >
+          {t.icon} {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
+  );
+}
+
+function AppInner() {
   const [user, setUser] = useState(null);
   const [page, setPage] = useState('login');
   const [gameId, setGameId] = useState(null);
@@ -103,6 +130,7 @@ export default function App() {
         <nav className="top-nav">
           <span className="nav-brand">Splendur</span>
           <div className="nav-right">
+            <ThemeSwitcher />
             {page !== 'profile' && page !== 'login' && page !== 'game' && (
               <button className="btn-link" onClick={() => setPage('profile')}>Profile</button>
             )}

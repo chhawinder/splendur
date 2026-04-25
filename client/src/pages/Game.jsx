@@ -6,6 +6,7 @@ import ReturnChipsModal from '../components/ReturnChipsModal';
 import ResignModal from '../components/ResignModal';
 import BadgeNotification from '../components/BadgeNotification';
 import { COST_COLORS } from '../components/Card';
+import { useTheme } from '../ThemeContext';
 
 // Gem glow colors for animations
 const GEM_GLOW = {
@@ -55,7 +56,26 @@ function createConfetti(x, y) {
   return pieces;
 }
 
+const NOBLE_FLY_STYLE = {
+  dark: {
+    background: 'linear-gradient(145deg, rgba(26,26,46,0.9), rgba(13,13,26,0.95))',
+    border: '1.5px solid rgba(212,175,55,0.4)',
+    boxShadow: '0 8px 30px rgba(212,175,55,0.3)',
+  },
+  champagne: {
+    background: 'rgba(255,255,255,0.9)',
+    border: '1.5px solid rgba(180,155,100,0.4)',
+    boxShadow: '0 8px 30px rgba(160,132,74,0.3)',
+  },
+  burgundy: {
+    background: 'linear-gradient(145deg, rgba(74,26,44,0.9), rgba(42,14,24,0.95))',
+    border: '1.5px solid rgba(232,196,108,0.4)',
+    boxShadow: '0 8px 30px rgba(232,196,108,0.3)',
+  },
+};
+
 export default function Game({ socket, gameId, userId, isSpectating, onLeave }) {
+  const { theme } = useTheme();
   const [gameState, setGameState] = useState(null);
   const [showReturn, setShowReturn] = useState(false);
   const [returnChips, setReturnChipsData] = useState(null);
@@ -67,39 +87,49 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   const [flyingCards, setFlyingCards] = useState([]);
   const [flyingNobles, setFlyingNobles] = useState([]);
   const [confetti, setConfetti] = useState([]);
+  const [highlightCards, setHighlightCards] = useState([]); // cards being highlighted before fly
+  const [newBoardCards, setNewBoardCards] = useState(new Set()); // newly appeared cards
   const cardRefs = useRef({});
   const tileRefs = useRef({});
   const prevBonusTiles = useRef(null);
-  const prevPlayerCards = useRef(null);
+  const prevAllPlayers = useRef(null); // track ALL players' cards
+  const prevBoardCards = useRef(null); // track board card IDs
 
-  // Detect newly purchased cards & newly claimed nobles
-  const animateCardPurchase = useCallback((cardId, color) => {
+  // Animate card purchase — works for any player
+  const animateCardFly = useCallback((cardId, color, targetSelector) => {
     const sourceEl = cardRefs.current[cardId];
-    const targetEl = document.querySelector('.player-panel.is-me');
+    const targetEl = document.querySelector(targetSelector);
     if (!sourceEl || !targetEl) return;
 
     const sr = sourceEl.getBoundingClientRect();
     const tr = targetEl.getBoundingClientRect();
 
-    setFlyingCards(prev => [...prev, {
-      id: `card_${cardId}_${Date.now()}`,
-      startX: sr.left,
-      startY: sr.top,
-      endX: tr.left + tr.width / 2 - 60,
-      endY: tr.top + tr.height / 2,
-      color,
-      bg: CARD_BG_SOLID[color],
-      glow: CARD_GLOW[color],
-    }]);
+    // First: highlight the card for 600ms so user can see it
+    setHighlightCards(prev => [...prev, { id: cardId, color }]);
 
     setTimeout(() => {
-      setFlyingCards(prev => prev.filter(c => !c.id.startsWith(`card_${cardId}`)));
-    }, 750);
+      setHighlightCards(prev => prev.filter(h => h.id !== cardId));
+      // Then: fly it
+      setFlyingCards(prev => [...prev, {
+        id: `card_${cardId}_${Date.now()}`,
+        startX: sr.left,
+        startY: sr.top,
+        endX: tr.left + tr.width / 2 - 60,
+        endY: tr.top + tr.height / 2,
+        color,
+        bg: CARD_BG_SOLID[color],
+        glow: CARD_GLOW[color],
+      }]);
+
+      setTimeout(() => {
+        setFlyingCards(prev => prev.filter(c => !c.id.startsWith(`card_${cardId}`)));
+      }, 1200);
+    }, 600);
   }, []);
 
-  const animateNobleClaim = useCallback((tileId) => {
+  const animateNobleClaim = useCallback((tileId, targetSelector) => {
     const sourceEl = tileRefs.current[tileId];
-    const targetEl = document.querySelector('.player-panel.is-me');
+    const targetEl = document.querySelector(targetSelector);
     if (!sourceEl || !targetEl) return;
 
     const sr = sourceEl.getBoundingClientRect();
@@ -124,7 +154,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
 
     setTimeout(() => {
       setFlyingNobles(prev => prev.filter(n => !n.id.startsWith(`noble_${tileId}`)));
-    }, 900);
+    }, 1100);
   }, []);
 
   useEffect(() => {
@@ -132,33 +162,71 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     socket.emit('getGameState', { gameId });
 
     socket.on('gameState', (state) => {
-      // Detect card purchases for animation
-      if (prevPlayerCards.current && !isSpectating) {
-        const me = state.players.find(p => p.id === userId);
-        const prevMe = prevPlayerCards.current;
-        if (me && prevMe) {
-          const prevIds = new Set(prevMe.map(c => c.id));
-          const newCards = me.cards.filter(c => !prevIds.has(c.id));
-          for (const card of newCards) {
-            animateCardPurchase(card.id, card.discount);
+      // Detect card purchases for ALL players (highlight + fly)
+      if (prevAllPlayers.current) {
+        for (const player of state.players) {
+          const prev = prevAllPlayers.current.find(p => p.id === player.id);
+          if (!prev) continue;
+          const prevIds = new Set(prev.cardIds);
+          const newCards = player.cards.filter(c => !prevIds.has(c.id));
+          if (newCards.length > 0) {
+            const isMe = player.id === userId;
+            const panelSelector = isMe
+              ? '.player-panel.is-me'
+              : `[data-player-id="${player.id}"]`;
+            for (const card of newCards) {
+              animateCardFly(card.id, card.discount, panelSelector);
+            }
           }
         }
       }
 
-      // Detect noble tile claims for animation
-      if (prevBonusTiles.current && !isSpectating) {
+      // Detect noble tile claims for ALL players
+      if (prevBonusTiles.current) {
         for (const tile of state.bonusTiles) {
           const prev = prevBonusTiles.current.find(t => t.id === tile.id);
-          if (tile.claimedBy === userId && prev && prev.claimedBy !== userId) {
-            animateNobleClaim(tile.id);
+          if (tile.claimedBy && prev && prev.claimedBy !== tile.claimedBy) {
+            const isMe = tile.claimedBy === userId;
+            const panelSelector = isMe
+              ? '.player-panel.is-me'
+              : `[data-player-id="${tile.claimedBy}"]`;
+            animateNobleClaim(tile.id, panelSelector);
           }
         }
       }
 
-      // Store previous state for diff
-      const meNow = state.players.find(p => p.id === userId);
-      prevPlayerCards.current = meNow ? [...meNow.cards] : null;
+      // Detect new cards appearing on the board
+      if (prevBoardCards.current) {
+        const newIds = new Set();
+        for (const level of ['level1', 'level2', 'level3']) {
+          for (const card of state.board[level]) {
+            if (!card.hidden && !prevBoardCards.current.has(card.id)) {
+              newIds.add(card.id);
+            }
+          }
+        }
+        if (newIds.size > 0) {
+          // Delay the appear animation to sync with card fly departure
+          setTimeout(() => {
+            setNewBoardCards(newIds);
+            setTimeout(() => setNewBoardCards(new Set()), 600);
+          }, 700);
+        }
+      }
+
+      // Store previous state for diffing
+      prevAllPlayers.current = state.players.map(p => ({
+        id: p.id,
+        cardIds: p.cards.map(c => c.id),
+      }));
       prevBonusTiles.current = [...state.bonusTiles];
+      const boardIds = new Set();
+      for (const level of ['level1', 'level2', 'level3']) {
+        for (const card of state.board[level]) {
+          if (!card.hidden) boardIds.add(card.id);
+        }
+      }
+      prevBoardCards.current = boardIds;
 
       setGameState(state);
       setActionError('');
@@ -272,12 +340,13 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
         {/* Left: Players */}
         <div className="players-sidebar">
           {gameState.players.map(p => (
-            <PlayerPanel
-              key={p.id}
-              player={p}
-              isCurrentTurn={p.id === gameState.currentPlayerId}
-              isMe={p.id === userId}
-            />
+            <div key={p.id} data-player-id={p.id}>
+              <PlayerPanel
+                player={p}
+                isCurrentTurn={p.id === gameState.currentPlayerId}
+                isMe={p.id === userId}
+              />
+            </div>
           ))}
         </div>
 
@@ -330,18 +399,24 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
                 <span className="deck-count">{gameState.deckCounts[level]}</span>
                 <span className="deck-label">L{level.replace('level', '')}</span>
               </div>
-              {gameState.board[level].map(card => (
-                <div
-                  key={card.id}
-                  className="card-wrapper"
-                  ref={el => cardRefs.current[card.id] = el}
-                >
-                  <Card
-                    card={card}
-                    onClick={() => isMyTurn && setSelectedCard(card)}
-                  />
-                </div>
-              ))}
+              {gameState.board[level].map(card => {
+                const isHighlighted = highlightCards.some(h => h.id === card.id);
+                const highlightColor = highlightCards.find(h => h.id === card.id)?.color;
+                const isNew = newBoardCards.has(card.id);
+                return (
+                  <div
+                    key={card.id}
+                    className={`card-wrapper ${isHighlighted ? 'card-highlight' : ''} ${isNew ? 'card-appear' : ''}`}
+                    ref={el => cardRefs.current[card.id] = el}
+                    style={isHighlighted ? { '--highlight-color': CARD_GLOW[highlightColor] || 'rgba(212,175,55,0.4)' } : undefined}
+                  >
+                    <Card
+                      card={card}
+                      onClick={() => isMyTurn && setSelectedCard(card)}
+                    />
+                  </div>
+                );
+              })}
             </div>
           ))}
 
@@ -452,10 +527,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
             '--end-y': `${fn.endY}px`,
             width: fn.width,
             height: fn.height,
-            background: 'linear-gradient(145deg, rgba(26,26,46,0.9), rgba(13,13,26,0.95))',
-            border: '1.5px solid rgba(212,175,55,0.4)',
+            ...(NOBLE_FLY_STYLE[theme] || NOBLE_FLY_STYLE.dark),
             borderRadius: '14px',
-            boxShadow: '0 8px 30px rgba(212,175,55,0.3)',
           }}
         />
       ))}
