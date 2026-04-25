@@ -104,7 +104,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     const sr = sourceEl.getBoundingClientRect();
     const tr = targetEl.getBoundingClientRect();
 
-    // First: highlight the card for 600ms so user can see it
+    // First: highlight the card for 800ms so user can see it
     setHighlightCards(prev => [...prev, { id: cardId, color }]);
 
     setTimeout(() => {
@@ -123,8 +123,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
 
       setTimeout(() => {
         setFlyingCards(prev => prev.filter(c => !c.id.startsWith(`card_${cardId}`)));
-      }, 1200);
-    }, 600);
+      }, 1600);
+    }, 800);
   }, []);
 
   const animateNobleClaim = useCallback((tileId, targetSelector) => {
@@ -139,7 +139,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
 
     // Confetti burst from tile position
     setConfetti(createConfetti(cx, cy));
-    setTimeout(() => setConfetti([]), 1400);
+    setTimeout(() => setConfetti([]), 1800);
 
     // Fly noble to player
     setFlyingNobles(prev => [...prev, {
@@ -154,7 +154,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
 
     setTimeout(() => {
       setFlyingNobles(prev => prev.filter(n => !n.id.startsWith(`noble_${tileId}`)));
-    }, 1100);
+    }, 1400);
   }, []);
 
   useEffect(() => {
@@ -209,8 +209,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
           // Delay the appear animation to sync with card fly departure
           setTimeout(() => {
             setNewBoardCards(newIds);
-            setTimeout(() => setNewBoardCards(new Set()), 600);
-          }, 700);
+            setTimeout(() => setNewBoardCards(new Set()), 800);
+          }, 900);
         }
       }
 

@@ -118,7 +118,7 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
           startY,
           endX: targetX,
           endY: targetY,
-          spawnDelay: idx * 150,
+          spawnDelay: idx * 200,
         });
         idx++;
       }
@@ -129,12 +129,12 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
       setTimeout(() => {
         setFlyingChips(prev => [...prev, chip]);
 
-        // Remove this chip after its animation completes (0.9s)
+        // Remove this chip after its animation completes (1.3s)
         setTimeout(() => {
           setFlyingChips(prev => prev.filter(c => c.id !== chip.id));
-        }, 950);
+        }, 1350);
 
-        // Landing pulse when chip arrives (~650ms into animation)
+        // Landing pulse when chip arrives (~950ms into animation)
         setTimeout(() => {
           const pulseId = `pulse_${chip.id}`;
           setLandPulses(prev => [...prev, {
@@ -146,13 +146,13 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn }) {
           setTimeout(() => {
             setLandPulses(prev => prev.filter(p => p.id !== pulseId));
           }, 500);
-        }, 650);
+        }, 950);
       }, chip.spawnDelay);
     });
 
     // After all animations done, send the action
     const lastSpawn = chipQueue.length > 0 ? chipQueue[chipQueue.length - 1].spawnDelay : 0;
-    const totalDuration = lastSpawn + 1000;
+    const totalDuration = lastSpawn + 1400;
     setTimeout(() => {
       onTakeChips(selected);
       setSelected({});

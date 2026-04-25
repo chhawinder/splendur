@@ -545,6 +545,7 @@ body {
   background: var(--shimmer-gradient);
   animation: shimmer-float linear infinite;
   opacity: 0;
+  box-shadow: 0 0 6px 2px rgba(201,168,76,0.15);
 }
 
 /* ============ NAV ============ */
@@ -889,7 +890,7 @@ body {
 /* Highlight a card before it flies away (opponent purchase) */
 .card-wrapper.card-highlight {
   z-index: 10;
-  animation: cardHighlightPulse 0.6s ease;
+  animation: cardHighlightPulse 0.8s ease;
 }
 @keyframes cardHighlightPulse {
   0%   { transform: scale(1); box-shadow: none; }
@@ -900,7 +901,7 @@ body {
 
 /* New card appearing on the board */
 .card-wrapper.card-appear {
-  animation: cardAppear 0.5s ease-out;
+  animation: cardAppear 0.7s ease-out;
 }
 @keyframes cardAppear {
   0%   { transform: scale(0.3) rotateY(90deg); opacity: 0; }
@@ -1119,9 +1120,9 @@ body {
   z-index: 150; pointer-events: none;
   left: var(--start-x); top: var(--start-y);
   transform: translate(-50%, -50%);
-  animation: flyChipX 0.9s cubic-bezier(0.25, 1, 0.5, 1) forwards,
-             flyChipY 0.9s cubic-bezier(0.5, 0, 0.75, 0.5) forwards,
-             flyChipScale 0.9s ease-in-out forwards;
+  animation: flyChipX 1.3s cubic-bezier(0.25, 1, 0.5, 1) forwards,
+             flyChipY 1.3s cubic-bezier(0.5, 0, 0.75, 0.5) forwards,
+             flyChipScale 1.3s ease-in-out forwards;
   box-shadow: var(--fly-chip-shadow);
 }
 @keyframes flyChipX {
@@ -1146,7 +1147,7 @@ body {
   left: var(--x); top: var(--y);
   transform: translate(-50%, -50%) scale(0.3);
   background: radial-gradient(circle, var(--glow-color, var(--land-pulse-color)) 0%, transparent 70%);
-  animation: landPulse 0.5s ease-out forwards;
+  animation: landPulse 0.7s ease-out forwards;
 }
 @keyframes landPulse {
   0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0.9; }
@@ -1158,9 +1159,9 @@ body {
   position: fixed; z-index: 160; pointer-events: none;
   width: 120px; height: 170px; border-radius: 12px;
   left: var(--start-x); top: var(--start-y);
-  animation: flyCardX 1.1s cubic-bezier(0.22, 1, 0.36, 1) forwards,
-             flyCardY 1.1s cubic-bezier(0.55, 0, 1, 0.45) forwards,
-             flyCardScale 1.1s ease forwards;
+  animation: flyCardX 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+             flyCardY 1.5s cubic-bezier(0.55, 0, 1, 0.45) forwards,
+             flyCardScale 1.5s ease forwards;
   box-shadow: 0 12px 40px rgba(0,0,0,0.3), var(--fly-card-shadow-extra) var(--card-glow, rgba(180,155,100,0.15));
 }
 @keyframes flyCardX {
@@ -1183,9 +1184,9 @@ body {
 .flying-noble {
   position: fixed; z-index: 160; pointer-events: none;
   left: var(--start-x); top: var(--start-y);
-  animation: flyNobleX 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards,
-             flyNobleY 0.8s cubic-bezier(0.55, 0, 1, 0.45) forwards,
-             flyNobleScale 0.8s ease forwards;
+  animation: flyNobleX 1.3s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+             flyNobleY 1.3s cubic-bezier(0.55, 0, 1, 0.45) forwards,
+             flyNobleScale 1.3s ease forwards;
 }
 @keyframes flyNobleX {
   0%   { left: var(--start-x); }
@@ -1212,7 +1213,7 @@ body {
   background: var(--color, #d4af37);
   left: var(--x); top: var(--y);
   opacity: 0;
-  animation: confettiBurst 1.2s ease-out forwards;
+  animation: confettiBurst 1.6s ease-out forwards;
   animation-delay: var(--delay, 0ms);
 }
 .confetti-piece.confetti-circle { border-radius: 50%; }

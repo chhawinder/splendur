@@ -98,13 +98,13 @@ function AppInner() {
   }
 
   // Generate shimmer particles once
-  const particles = Array.from({ length: 20 }, (_, i) => ({
+  const particles = Array.from({ length: 35 }, (_, i) => ({
     id: i,
     left: `${Math.random() * 100}%`,
-    size: 1.5 + Math.random() * 2.5,
-    duration: 8 + Math.random() * 12,
-    delay: Math.random() * 15,
-    opacity: 0.15 + Math.random() * 0.25,
+    size: 2 + Math.random() * 4,
+    duration: 10 + Math.random() * 15,
+    delay: Math.random() * 20,
+    opacity: 0.25 + Math.random() * 0.35,
   }));
 
   return (
