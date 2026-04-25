@@ -154,8 +154,12 @@ function recordGamePlayed(id, vsCPU = false) {
   }
 }
 
+function getAllUsers() {
+  return db.prepare('SELECT username, created_at, total_games, wins, rating FROM users ORDER BY created_at DESC').all();
+}
+
 module.exports = {
   createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById,
   updateRating, recordGamePlayed, getDailyStats, getWeeklyStats, getPlayStreak,
-  getUserBadges, awardBadge
+  getUserBadges, awardBadge, getAllUsers
 };

@@ -106,6 +106,13 @@ app.get('/api/profile', authMiddleware, (req, res) => {
   res.json({ user, badges, daily, weekly });
 });
 
+// Admin stats endpoint
+app.get('/api/stats', (req, res) => {
+  const db = require('./db');
+  const users = db.getAllUsers ? db.getAllUsers() : [];
+  res.json({ totalUsers: users.length, users: users.map(u => ({ username: u.username, created_at: u.created_at, total_games: u.total_games })) });
+});
+
 // Catch-all for SPA (only if client build exists)
 if (require('fs').existsSync(path.join(clientDistPath, 'index.html'))) {
   app.get('*', (req, res) => {
