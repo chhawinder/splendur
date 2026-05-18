@@ -6,6 +6,7 @@ const THEMES = {
   dark: { name: 'dark', label: 'Midnight', icon: '🌙' },
   champagne: { name: 'champagne', label: 'Champagne', icon: '🥂' },
   burgundy: { name: 'burgundy', label: 'Burgundy', icon: '🍷' },
+  luxury: { name: 'luxury', label: 'Luxury', icon: '👑' },
 };
 
 export function ThemeProvider({ children }) {

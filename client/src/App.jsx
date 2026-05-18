@@ -3,9 +3,12 @@ import Login from './pages/Login';
 import Lobby from './pages/Lobby';
 import Game from './pages/Game';
 import Profile from './pages/Profile';
+import AvatarSelect, { AVATARS } from './components/AvatarSelect';
 import { getSocket, resetSocket } from './socket';
 import { ThemeProvider, useTheme, THEMES } from './ThemeContext';
 import './App.css';
+
+const AVATAR_IDS = new Set(AVATARS.map(a => a.id));
 
 function ThemeSwitcher() {
   const { theme, setTheme, themes } = useTheme();
@@ -41,10 +44,21 @@ function AppInner() {
   const [socket, setSocket] = useState(null);
   const [socketUserId, setSocketUserId] = useState(null);
 
+  const API = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+
+  // Fetch fresh user data (wins, etc.)
+  function refreshUser() {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    fetch(`${API}/api/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => setUser(data.user))
+      .catch(() => {});
+  }
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      const API = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
       fetch(`${API}/api/me`, { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : Promise.reject())
         .then(data => handleLogin(data.user))
@@ -52,15 +66,38 @@ function AppInner() {
     }
   }, []);
 
-  function handleLogin(userData) {
-    setUser(userData);
+  function connectSocket(userData) {
     resetSocket();
     const s = getSocket();
     s.on('connected', ({ userId }) => {
       setSocketUserId(userId);
       s.userId = userId;
+      s.emit('checkActiveGame');
+    });
+    s.once('activeGameFound', ({ gameId: gId, role }) => {
+      if (gId) {
+        setGameId(gId);
+        setIsSpectating(role === 'spectating');
+        setPage('game');
+      }
     });
     setSocket(s);
+  }
+
+  function handleLogin(userData) {
+    setUser(userData);
+    // If user hasn't picked a game avatar yet, show avatar selection
+    if (!userData.avatar || !AVATAR_IDS.has(userData.avatar)) {
+      setPage('avatar');
+      return;
+    }
+    connectSocket(userData);
+    setPage('lobby');
+  }
+
+  function handleAvatarSelected(updatedUser) {
+    setUser(updatedUser);
+    connectSocket(updatedUser);
     setPage('lobby');
   }
 
@@ -87,6 +124,7 @@ function AppInner() {
     }
     setGameId(null);
     setPage('lobby');
+    refreshUser(); // Fetch fresh wins count
   }
 
   function handleLogout() {
@@ -126,17 +164,11 @@ function AppInner() {
           />
         ))}
       </div>
-      {user && (
+      {user && page === 'game' && (
         <nav className="top-nav">
           <span className="nav-brand">Splendur</span>
           <div className="nav-right">
             <ThemeSwitcher />
-            {page !== 'profile' && page !== 'login' && page !== 'game' && (
-              <button className="btn-link" onClick={() => setPage('profile')}>Profile</button>
-            )}
-            {gameId && page !== 'game' && (
-              <button className="btn-link" onClick={() => setPage('game')}>Back to Game</button>
-            )}
             <span className="nav-user">{user.username}</span>
             <button className="btn-link" onClick={handleLogout}>Logout</button>
           </div>
@@ -144,7 +176,8 @@ function AppInner() {
       )}
 
       {page === 'login' && <Login onLogin={handleLogin} />}
-      {page === 'lobby' && socket && <Lobby socket={socket} user={user} onGameStart={handleGameStart} onSpectate={handleSpectate} />}
+      {page === 'avatar' && <AvatarSelect user={user} onSelect={handleAvatarSelected} />}
+      {page === 'lobby' && socket && <Lobby socket={socket} user={user} onGameStart={handleGameStart} onSpectate={handleSpectate} onProfile={() => setPage('profile')} onLogout={handleLogout} />}
       {page === 'game' && socket && gameId && (
         <Game
           socket={socket}
@@ -154,7 +187,7 @@ function AppInner() {
           onLeave={handleLeaveGame}
         />
       )}
-      {page === 'profile' && <Profile onBack={() => setPage(gameId ? 'game' : 'lobby')} />}
+      {page === 'profile' && <Profile onBack={() => setPage(gameId ? 'game' : 'lobby')} onUserUpdate={updated => setUser(updated)} />}
     </div>
   );
 }

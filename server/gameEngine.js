@@ -57,7 +57,7 @@ function computePayment(card, playerChips, playerCards) {
   return payment;
 }
 
-function createGame(playerIds, playerNames, targetScore) {
+function createGame(playerIds, playerNames, targetScore, timeControl) {
   const numPlayers = playerIds.length;
 
   // Chip counts based on player count
@@ -116,6 +116,13 @@ function createGame(playerIds, playerNames, targetScore) {
     lastRoundTriggeredBy: null,
     winner: null,
     log: [],
+    // Chess-style timer: each player gets a time bank (in ms), null = no timer
+    timeControl: timeControl || null, // e.g. 300000 (5 min) or 600000 (10 min)
+    timeIncrement: timeControl ? (timeControl <= 300000 ? 15000 : 10000) : null, // +15s for 5min, +10s for 10min
+    timers: timeControl
+      ? playerIds.map(() => timeControl)
+      : null, // array of ms remaining per player
+    turnStartedAt: timeControl ? Date.now() : null,
   };
 }
 
@@ -360,6 +367,8 @@ function getPublicGameState(game, forPlayerId) {
     players: game.players.map(p => ({
       id: p.id,
       name: p.name,
+      avatar: p.avatar || null,
+      isCPU: p.isCPU || false,
       chips: p.chips,
       cards: p.cards,
       reservedCount: p.reserved.length,
@@ -379,6 +388,12 @@ function getPublicGameState(game, forPlayerId) {
       level2: game.decks.level2.length,
       level3: game.decks.level3.length,
     },
+    // Timer data (null if no timer)
+    timeControl: game.timeControl,
+    timeIncrement: game.timeIncrement,
+    timers: game.timers,
+    turnStartedAt: game.turnStartedAt,
+    serverTime: Date.now(),
   };
 }
 

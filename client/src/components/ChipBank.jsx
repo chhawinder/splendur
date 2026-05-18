@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 const COLORS = ['black', 'white', 'blue', 'green', 'red'];
 
@@ -43,6 +43,34 @@ export const GEM_STYLES = {
 
 export default function ChipBank({ bank, onTakeChips, isMyTurn, animating }) {
   const [selected, setSelected] = useState({});
+  const [pops, setPops] = useState({}); // { color: 'taken'|'returned' } for animation
+  const prevBankStr = useRef('');
+  const popTimer = useRef(null);
+
+  // Detect bank changes and trigger pop animations
+  const bankStr = JSON.stringify(bank);
+  useEffect(() => {
+    if (!prevBankStr.current) {
+      prevBankStr.current = bankStr;
+      return;
+    }
+    if (prevBankStr.current === bankStr) return;
+    const prev = JSON.parse(prevBankStr.current);
+    const curr = bank;
+    const newPops = {};
+    for (const color of [...COLORS, 'gold']) {
+      const p = prev[color] || 0;
+      const c = curr[color] || 0;
+      if (c < p) newPops[color] = 'taken';
+      else if (c > p) newPops[color] = 'returned';
+    }
+    prevBankStr.current = bankStr;
+    if (Object.keys(newPops).length > 0) {
+      if (popTimer.current) clearTimeout(popTimer.current);
+      setPops(newPops);
+      popTimer.current = setTimeout(() => setPops({}), 700);
+    }
+  }, [bankStr, bank]);
 
   const totalSelected = Object.values(selected).reduce((s, v) => s + v, 0);
 
@@ -101,7 +129,7 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn, animating }) {
           return (
             <div key={color} className="chip-stack">
               <div
-                className={`gem-chip ${selected[color] ? 'gem-selected' : ''} ${bank[color] === 0 ? 'gem-empty' : ''}`}
+                className={`gem-chip ${selected[color] ? 'gem-selected' : ''} ${bank[color] === 0 ? 'gem-empty' : ''} ${pops[color] === 'taken' ? 'gem-pop-taken' : ''} ${pops[color] === 'returned' ? 'gem-pop-returned' : ''}`}
                 style={{
                   background: gs.bg,
                   color: gs.color,
@@ -122,7 +150,7 @@ export default function ChipBank({ bank, onTakeChips, isMyTurn, animating }) {
           );
         })}
         <div className="chip-stack">
-          <div className="gem-chip gem-chip-gold" style={{
+          <div className={`gem-chip gem-chip-gold ${pops.gold === 'taken' ? 'gem-pop-taken' : ''} ${pops.gold === 'returned' ? 'gem-pop-returned' : ''}`} style={{
             background: 'radial-gradient(circle at 28% 22%, #fde68a, #d4af37 45%, #a67c00 100%)',
             color: '#5c3d00',
             border: '3px solid rgba(253,230,138,0.5)',

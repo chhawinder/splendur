@@ -72,6 +72,11 @@ const NOBLE_FLY_STYLE = {
     border: '1.5px solid rgba(232,196,108,0.4)',
     boxShadow: '0 8px 30px rgba(232,196,108,0.3)',
   },
+  luxury: {
+    background: 'linear-gradient(145deg, rgba(60,30,10,0.95), rgba(30,14,5,0.98))',
+    border: '1.5px solid rgba(212,175,55,0.5)',
+    boxShadow: '0 8px 30px rgba(212,175,55,0.35)',
+  },
 };
 
 export default function Game({ socket, gameId, userId, isSpectating, onLeave }) {
@@ -79,6 +84,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   const [gameState, setGameState] = useState(null);
   const [showReturn, setShowReturn] = useState(false);
   const [returnChips, setReturnChipsData] = useState(null);
+  const [pendingAction, setPendingAction] = useState(null); // { type, data } for take/reserve before return
+  const skipNextNeedsReturn = useRef(false);
   const [actionError, setActionError] = useState('');
   const [showReserved, setShowReserved] = useState(false);
   const [showResign, setShowResign] = useState(false);
@@ -93,7 +100,10 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   const [hiddenBoardCards, setHiddenBoardCards] = useState(new Set()); // cards being removed (empty slot)
   const [gemPopup, setGemPopup] = useState(null);       // gems shown at center
   const [flyingGems, setFlyingGems] = useState([]);      // gems flying from center to panel
+  const [returnFlyingGems, setReturnFlyingGems] = useState([]); // gems flying from player to bank on purchase
   const [gemAnimating, setGemAnimating] = useState(false);
+  const [now, setNow] = useState(Date.now()); // updates every second for live timer display
+  const serverOffset = useRef(0);    // client time - server time
   const cardRefs = useRef({});       // board card elements
   const reservedRefs = useRef({});   // reserved card elements
   const tileRefs = useRef({});
@@ -102,6 +112,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   const prevBonusTiles = useRef(null);
   const prevAllPlayers = useRef(null); // track ALL players' cards
   const prevBoardCards = useRef(null); // track board card IDs
+  const prevBankSnapshot = useRef(null); // track bank for staged chip animation
 
   // Animate card purchase — popup to center with full card info, then fly to player panel
   const animateCardFly = useCallback((card, targetSelector) => {
@@ -191,7 +202,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     function processGameState(state) {
       let animationDelay = 0;
 
-      // Detect card purchases for ALL players (highlight + fly)
+      // Detect card purchases for ALL players (highlight + fly + chip return animation)
       if (prevAllPlayers.current) {
         for (const player of state.players) {
           const prev = prevAllPlayers.current.find(p => p.id === player.id);
@@ -207,6 +218,49 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
               animateCardFly(card, panelSelector);
             }
             animationDelay = Math.max(animationDelay, 2900);
+
+            // Detect chips spent (diff player's chips before/after)
+            const spent = [];
+            for (const color of ['black', 'white', 'blue', 'green', 'red', 'gold']) {
+              const diff = (prev.chips[color] || 0) - (player.chips[color] || 0);
+              if (diff > 0) spent.push({ color, count: diff });
+            }
+
+            if (spent.length > 0) {
+              // After card fly finishes, fly gems from player panel to chip bank
+              const returnDelay = 2900;
+              setTimeout(() => {
+                const panelEl = document.querySelector(panelSelector);
+                const bankEl = document.querySelector('.chip-bank');
+                const panelRect = panelEl
+                  ? panelEl.getBoundingClientRect()
+                  : { left: 100, top: 100, width: 100, height: 50 };
+                const bankRect = bankEl
+                  ? bankEl.getBoundingClientRect()
+                  : { left: window.innerWidth / 2, top: window.innerHeight / 2, width: 200, height: 50 };
+
+                const startX = panelRect.left + panelRect.width / 2;
+                const startY = panelRect.top + panelRect.height / 2;
+                const endX = bankRect.left + bankRect.width / 2;
+                const endY = bankRect.top + bankRect.height / 2;
+
+                const spacing = 55;
+                const startOffset = -((spent.length - 1) * spacing) / 2;
+
+                const gems = spent.map((s, i) => ({
+                  id: `return_${s.color}_${i}_${Date.now()}`,
+                  color: s.color,
+                  count: s.count,
+                  startX: startX + startOffset + i * spacing,
+                  startY,
+                  endX: endX + startOffset + i * spacing,
+                  endY,
+                }));
+                setReturnFlyingGems(gems);
+                setTimeout(() => setReturnFlyingGems([]), 1100);
+              }, returnDelay);
+              animationDelay = Math.max(animationDelay, returnDelay + 1200);
+            }
           }
         }
       }
@@ -342,27 +396,76 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       }
       prevBoardCards.current = boardIds;
 
-      // Apply state — delayed if animations are playing
+      // Detect if bank changed (chips taken or returned)
+      const bankChanged = prevBankSnapshot.current &&
+        JSON.stringify(prevBankSnapshot.current) !== JSON.stringify(state.bank);
+      prevBankSnapshot.current = state.bank;
+
       const applyState = () => {
+        // Compute server-client time offset for accurate timer display
+        if (state.serverTime) {
+          serverOffset.current = Date.now() - state.serverTime;
+        }
         setGameState(state);
         setActionError('');
+        // Combine badges and completed challenges into one celebration list
+        const celebrations = [];
         if (state.newBadges && state.newBadges.length > 0) {
-          setNewBadges(state.newBadges);
+          celebrations.push(...state.newBadges);
+        }
+        if (state.completedChallenges && state.completedChallenges.length > 0) {
+          celebrations.push(...state.completedChallenges.map(c => ({
+            ...c, isChallenge: true,
+          })));
+        }
+        if (celebrations.length > 0) {
+          setNewBadges(celebrations);
         }
       };
 
-      if (animationDelay > 0) {
+      // If game just ended, skip all staging — apply immediately to avoid stale state
+      if (state.phase === 'ended') {
+        applyState();
+        animBusyUntil.current = 0; // clear any pending animation lock
+        return;
+      }
+
+      // Staged animation: bank update (chip pop) happens separately from full state
+      const chipPopDuration = 800; // time for pop animation to play
+
+      if (animationDelay > 0 && bankChanged) {
+        // Card animation first, then bank pop, then full state
+        // Also carry timer data in Stage 1 so clock doesn't show stale values
+        setTimeout(() => {
+          setGameState(prev => prev ? {
+            ...prev, bank: state.bank,
+            timers: state.timers, turnStartedAt: state.turnStartedAt, serverTime: state.serverTime,
+          } : state);
+          if (state.serverTime) serverOffset.current = Date.now() - state.serverTime;
+        }, animationDelay);
+        setTimeout(applyState, animationDelay + chipPopDuration);
+      } else if (bankChanged) {
+        // No card animation but bank changed (chip takes) — show pop then apply full state
+        setGameState(prev => prev ? {
+          ...prev, bank: state.bank,
+          timers: state.timers, turnStartedAt: state.turnStartedAt, serverTime: state.serverTime,
+        } : state);
+        if (state.serverTime) serverOffset.current = Date.now() - state.serverTime;
+        setTimeout(applyState, chipPopDuration);
+      } else if (animationDelay > 0) {
         setTimeout(applyState, animationDelay);
       } else {
         applyState();
       }
 
+      const chipPopDelay = bankChanged ? chipPopDuration : 0;
       // Mark when animations will be done (+ 500ms buffer between turns)
-      animBusyUntil.current = Date.now() + animationDelay + 500;
+      animBusyUntil.current = Date.now() + animationDelay + chipPopDelay + 500;
 
       // After all animations done, check for queued states
-      if (animationDelay > 0) {
-        setTimeout(drainQueue, animationDelay + 500);
+      const totalDelay = animationDelay + chipPopDelay;
+      if (totalDelay > 0) {
+        setTimeout(drainQueue, totalDelay + 500);
       }
     }
 
@@ -374,6 +477,13 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     }
 
     socket.on('gameState', (state) => {
+      // Game-ending states should NEVER be queued — apply immediately
+      if (state.phase === 'ended') {
+        pendingStates.current = [];
+        animBusyUntil.current = 0;
+        processGameState(state);
+        return;
+      }
       const now = Date.now();
       if (now < animBusyUntil.current) {
         // Animations still playing — queue this state (keep only latest)
@@ -390,6 +500,10 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       onLeave();
     });
     socket.on('needsReturn', ({ currentChips }) => {
+      if (skipNextNeedsReturn.current) {
+        skipNextNeedsReturn.current = false;
+        return;
+      }
       setReturnChipsData(currentChips);
       setShowReturn(true);
     });
@@ -405,7 +519,36 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     };
   }, [socket, userId, isSpectating, gameId, onLeave, animateCardFly, animateNobleClaim]);
 
+  // Chess clock tick — update `now` every second for live countdown
+  useEffect(() => {
+    if (!gameState?.timeControl || gameState.phase === 'ended') return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [gameState?.timeControl, gameState?.phase]);
+
   if (!gameState) return <div className="loading">Loading game...</div>;
+
+  // Calculate live timer values — `now` state updates every second to drive countdown
+  function getPlayerTime(playerIndex) {
+    if (!gameState.timers || gameState.timers[playerIndex] == null) return null;
+    let remaining = gameState.timers[playerIndex];
+    // If this player's turn is active, subtract elapsed time since turnStartedAt
+    // Use serverOffset to convert server's turnStartedAt to client time
+    if (playerIndex === gameState.currentPlayerIndex && gameState.turnStartedAt && gameState.phase !== 'ended') {
+      const serverTurnStart = gameState.turnStartedAt + serverOffset.current;
+      const elapsed = now - serverTurnStart;
+      remaining = Math.max(0, remaining - elapsed);
+    }
+    return remaining;
+  }
+
+  function formatTime(ms) {
+    if (ms === null || ms === undefined) return '';
+    const totalSec = Math.ceil(ms / 1000);
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    return `${min}:${sec.toString().padStart(2, '0')}`;
+  }
 
   const me = isSpectating ? null : gameState.players.find(p => p.id === userId);
   const isMyTurn = !isSpectating && gameState.currentPlayerId === userId;
@@ -436,7 +579,17 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
 
   function handleReserve(cardId, fromDeck) {
     if (!isMyTurn) return;
-    socket.emit('reserveCard', { gameId, cardId, fromDeck });
+
+    // Reserving gives a gold chip — check if that would exceed 10
+    const currentTotal = me ? Object.values(me.chips).reduce((s, v) => s + v, 0) : 0;
+    if (currentTotal + 1 > 10) {
+      const projectedChips = { ...me.chips, gold: (me.chips.gold || 0) + 1 };
+      setPendingAction({ type: 'reserveCard', data: { cardId, fromDeck } });
+      setReturnChipsData(projectedChips);
+      setShowReturn(true);
+    } else {
+      socket.emit('reserveCard', { gameId, cardId, fromDeck });
+    }
   }
 
   function handleTakeChips(chips) {
@@ -486,15 +639,44 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
 
       // Send action & reset after fly completes
       setTimeout(() => {
-        socket.emit('takeChips', { gameId, chips });
         setGemAnimating(false);
+
+        // Check if taking these chips would exceed 10
+        const currentTotal = me ? Object.values(me.chips).reduce((s, v) => s + v, 0) : 0;
+        const takingTotal = Object.values(chips).reduce((s, v) => s + v, 0);
+
+        if (currentTotal + takingTotal > 10) {
+          // Show return modal BEFORE sending to server
+          const projectedChips = { ...me.chips };
+          for (const [color, count] of Object.entries(chips)) {
+            projectedChips[color] = (projectedChips[color] || 0) + count;
+          }
+          setPendingAction({ type: 'takeChips', data: { chips } });
+          setReturnChipsData(projectedChips);
+          setShowReturn(true);
+        } else {
+          socket.emit('takeChips', { gameId, chips });
+        }
       }, 1200);
     }, 900);
   }
 
-  function handleReturn(chips) {
-    socket.emit('returnChips', { gameId, chips });
+  function handleReturn(chipsToReturn) {
+    if (pendingAction) {
+      // Emit the original action first, then return chips
+      skipNextNeedsReturn.current = true;
+      if (pendingAction.type === 'takeChips') {
+        socket.emit('takeChips', { gameId, chips: pendingAction.data.chips });
+      } else if (pendingAction.type === 'reserveCard') {
+        socket.emit('reserveCard', { gameId, ...pendingAction.data });
+      }
+      socket.emit('returnChips', { gameId, chips: chipsToReturn });
+      setPendingAction(null);
+    } else {
+      socket.emit('returnChips', { gameId, chips: chipsToReturn });
+    }
     setShowReturn(false);
+    setReturnChipsData(null);
   }
 
   function handleBackToLobby() {
@@ -544,15 +726,24 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       <div className="game-layout">
         {/* Left: Players */}
         <div className="players-sidebar">
-          {gameState.players.map(p => (
-            <div key={p.id} data-player-id={p.id}>
-              <PlayerPanel
-                player={p}
-                isCurrentTurn={p.id === gameState.currentPlayerId}
-                isMe={p.id === userId}
-              />
-            </div>
-          ))}
+          {gameState.players.map((p, idx) => {
+            const timeMs = getPlayerTime(idx);
+            return (
+              <div key={p.id} data-player-id={p.id}>
+                <PlayerPanel
+                  player={p}
+                  isCurrentTurn={p.id === gameState.currentPlayerId}
+                  isMe={p.id === userId}
+                />
+                {gameState.timeControl && timeMs != null && (
+                  <div className={`chess-clock ${p.id === gameState.currentPlayerId && gameState.phase !== 'ended' ? 'clock-active' : ''} ${timeMs > 0 && timeMs <= 30000 ? 'clock-danger' : timeMs > 0 && timeMs <= 60000 ? 'clock-warning' : ''}`}>
+                    <span className="clock-icon">{timeMs <= 30000 ? '🔴' : timeMs <= 60000 ? '🟡' : '⏱'}</span>
+                    <span className="clock-time">{formatTime(timeMs)}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Center: Board */}
@@ -660,9 +851,16 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
           </div>
 
           <div className="turn-indicator">
-            {isSpectating
-              ? `${gameState.players[gameState.currentPlayerIndex]?.name}'s turn`
-              : isMyTurn ? "🟢 Your turn!" : `Waiting for ${gameState.players[gameState.currentPlayerIndex]?.name}...`}
+            {gameState.phase === 'ended'
+              ? `Game Over! ${gameState.players.find(p => p.id === gameState.winner)?.name || 'Nobody'} wins!`
+              : isSpectating
+                ? `${gameState.players[gameState.currentPlayerIndex]?.name}'s turn`
+                : isMyTurn ? "🟢 Your turn!" : `Waiting for ${gameState.players[gameState.currentPlayerIndex]?.name}...`}
+            {gameState.timeControl && isMyTurn && gameState.phase !== 'ended' && getPlayerTime(gameState.currentPlayerIndex) != null && (
+              <span className={`turn-timer ${(getPlayerTime(gameState.currentPlayerIndex) || 0) <= 30000 ? 'timer-danger' : ''}`}>
+                {formatTime(getPlayerTime(gameState.currentPlayerIndex))}
+              </span>
+            )}
           </div>
 
           <button
@@ -697,7 +895,15 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       )}
 
       {showReturn && returnChips && (
-        <ReturnChipsModal currentChips={returnChips} onReturn={handleReturn} />
+        <ReturnChipsModal
+          currentChips={returnChips}
+          onReturn={handleReturn}
+          onCancel={pendingAction ? () => {
+            setPendingAction(null);
+            setShowReturn(false);
+            setReturnChipsData(null);
+          } : undefined}
+        />
       )}
 
       {showResign && (
@@ -767,6 +973,27 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
               border: `2px solid ${gs.glow}`,
             }}
           />
+        );
+      })}
+
+      {/* Flying gems — from player panel to chip bank (card purchase chip return) */}
+      {returnFlyingGems.map(gem => {
+        const gs = GEM_STYLES[gem.color];
+        return (
+          <div
+            key={gem.id}
+            className="flying-chip return-flying-gem"
+            style={{
+              '--start-x': `${gem.startX}px`,
+              '--start-y': `${gem.startY}px`,
+              '--end-x': `${gem.endX}px`,
+              '--end-y': `${gem.endY}px`,
+              background: gs.bg,
+              border: `2px solid ${gs.glow}`,
+            }}
+          >
+            <span className="return-gem-count" style={{ color: gs.color }}>{gem.count}</span>
+          </div>
         );
       })}
 

@@ -6,10 +6,10 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
-const { createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating, recordGamePlayed } = require('./db');
+const { createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating, recordGamePlayed, updateAvatar, updateUsername } = require('./db');
 const { createGame, takeChips, returnChips, reserveCard, purchaseCard, endTurn, getPublicGameState } = require('./gameEngine');
 const { cpuTurn } = require('./cpuPlayer');
-const { checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWeeklyChallenges } = require('./badges');
+const { checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWeeklyChallenges, getNewlyCompletedChallenges } = require('./badges');
 
 const app = express();
 const server = http.createServer(app);
@@ -74,6 +74,41 @@ app.get('/api/me', (req, res) => {
   }
 });
 
+app.post('/api/avatar', (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ error: 'No token' });
+  try {
+    const decoded = jwt.verify(auth.replace('Bearer ', ''), JWT_SECRET);
+    const { avatar } = req.body;
+    if (!avatar) return res.status(400).json({ error: 'No avatar provided' });
+    updateAvatar(decoded.id, avatar);
+    const user = getUserById(decoded.id);
+    res.json({ user });
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+app.post('/api/username', (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ error: 'No token' });
+  try {
+    const decoded = jwt.verify(auth.replace('Bearer ', ''), JWT_SECRET);
+    const { username } = req.body;
+    if (!username || username.trim().length < 2 || username.trim().length > 20) {
+      return res.status(400).json({ error: 'Username must be 2-20 characters' });
+    }
+    updateUsername(decoded.id, username.trim());
+    const user = getUserById(decoded.id);
+    res.json({ user });
+  } catch (e) {
+    if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return res.status(400).json({ error: 'Username already taken' });
+    }
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
 // Badge & challenge endpoints
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
@@ -123,10 +158,13 @@ if (require('fs').existsSync(path.join(clientDistPath, 'index.html'))) {
 // ============ GAME STATE ============
 const lobbies = new Map(); // lobbyId -> { id, name, host, players: [{id,name,isCPU}], maxPlayers, started }
 const activeGames = new Map(); // gameId -> game state
+const TOTAL_ROOM_IMAGES = 10; // Must match client-side ROOM_IMAGES array length
+let roomImageCounter = 0; // Cycles through images so each room gets a different one
 const playerSockets = new Map(); // odId -> socket
 const socketPlayers = new Map(); // socketId -> { userId, username }
 // Track what each player is doing: { gameId, role: 'playing'|'spectating' }
 const playerActivity = new Map();
+const disconnectTimers = new Map(); // userId -> setTimeout handle for reconnection grace period
 
 // ============ HELPERS ============
 function broadcastLobbyLists() {
@@ -136,7 +174,7 @@ function broadcastLobbyLists() {
     if (game.phase !== 'ended') {
       games.push({
         id,
-        players: game.players.map(p => ({ name: p.name, points: p.points })),
+        players: game.players.map(p => ({ id: p.id, name: p.name, points: p.points, avatar: p.avatar || null, isCPU: p.isCPU || false })),
         turnNumber: game.turnNumber,
         phase: game.phase,
       });
@@ -156,6 +194,8 @@ function cleanupGameIfAbandoned(game) {
     // All humans left/resigned — end the game
     game.phase = 'ended';
     game.log.push('Game abandoned — all human players left.');
+    const timerHandle = gameTimerHandles.get(game.id);
+    if (timerHandle) { clearTimeout(timerHandle); gameTimerHandles.delete(game.id); }
     activeGames.delete(game.id);
     if (game.lobbyId) lobbies.delete(game.lobbyId);
     broadcastLobbyLists();
@@ -213,7 +253,7 @@ function clearPlayerActivity(userId) {
         // If next player is CPU, process
         const next = game.players[game.currentPlayerIndex];
         if (game.phase !== 'ended' && game.cpuPlayers?.includes(next.id) && !next.resigned) {
-          setTimeout(() => processCpuTurn(game), 3000);
+          setTimeout(() => processCpuTurn(game), 6000);
         }
       }
     }
@@ -242,25 +282,60 @@ io.on('connection', (socket) => {
   playerSockets.set(socket.userId, socket);
   socketPlayers.set(socket.id, { userId: socket.userId, username: socket.username });
 
+  // Cancel any pending disconnect timer (player reconnected)
+  const pendingTimer = disconnectTimers.get(socket.userId);
+  if (pendingTimer) {
+    clearTimeout(pendingTimer);
+    disconnectTimers.delete(socket.userId);
+  }
+
   socket.emit('connected', { userId: socket.userId, username: socket.username });
 
+  // Check if player was in an active game (reconnection after page reload)
+  socket.on('checkActiveGame', () => {
+    const activity = playerActivity.get(socket.userId);
+    if (activity && activity.gameId) {
+      const game = activeGames.get(activity.gameId);
+      if (game && game.phase !== 'ended') {
+        socket.emit('activeGameFound', {
+          gameId: activity.gameId,
+          role: activity.role,
+        });
+        return;
+      }
+      // Game ended or not found — clean up stale activity
+      playerActivity.delete(socket.userId);
+    }
+    socket.emit('activeGameFound', { gameId: null });
+  });
+
   // ---- LOBBY ----
-  socket.on('createLobby', ({ name, maxPlayers, targetScore }) => {
+  socket.on('createLobby', ({ name, maxPlayers, targetScore, timeControl }) => {
     // Must not be in an active game
     const activity = playerActivity.get(socket.userId);
     if (activity) {
       return socket.emit('error', { message: 'You are already in a game. Leave it first.' });
     }
+    // Must not already be in a lobby
+    for (const [, existingLobby] of lobbies) {
+      if (!existingLobby.started && existingLobby.players.some(p => p.id === socket.userId)) {
+        return socket.emit('error', { message: 'You are already in a lobby. Leave it first.' });
+      }
+    }
 
     const lobbyId = uuidv4().slice(0, 8);
+    const hostUser = getUserById(socket.userId);
+    const freshName = hostUser?.username || socket.username;
     const lobby = {
       id: lobbyId,
-      name: name || `${socket.username}'s game`,
+      name: name || `${freshName}'s game`,
       host: socket.userId,
-      players: [{ id: socket.userId, name: socket.username, isCPU: false }],
+      players: [{ id: socket.userId, name: freshName, isCPU: false, rating: hostUser?.rating || 1500, avatar: hostUser?.avatar || null }],
       maxPlayers: maxPlayers || 2,
       targetScore: targetScore || 15,
+      timeControl: timeControl || null, // ms per player (null = no timer, 300000 = 5min, 600000 = 10min)
       started: false,
+      roomImage: roomImageCounter++ % TOTAL_ROOM_IMAGES,
     };
     lobbies.set(lobbyId, lobby);
     socket.join(`lobby_${lobbyId}`);
@@ -275,7 +350,7 @@ io.on('connection', (socket) => {
       if (game.phase !== 'ended') {
         games.push({
           id,
-          players: game.players.map(p => ({ name: p.name, points: p.points })),
+          players: game.players.map(p => ({ id: p.id, name: p.name, points: p.points, avatar: p.avatar || null, isCPU: p.isCPU || false })),
           turnNumber: game.turnNumber,
           phase: game.phase,
         });
@@ -296,6 +371,7 @@ io.on('connection', (socket) => {
       const state = getPublicGameState(game, socket.userId);
       state.ratingChanges = game.ratingChanges || null;
       state.newBadges = game.newBadges?.[socket.userId] || null;
+      state.completedChallenges = game.completedChallenges?.[socket.userId] || null;
       socket.emit('gameState', state);
     } else {
       // Treat as spectator
@@ -342,7 +418,9 @@ io.on('connection', (socket) => {
     if (lobby.players.length >= lobby.maxPlayers) return socket.emit('error', { message: 'Lobby full' });
     if (lobby.players.find(p => p.id === socket.userId)) return socket.emit('error', { message: 'Already in lobby' });
 
-    lobby.players.push({ id: socket.userId, name: socket.username, isCPU: false });
+    const joiningUser = getUserById(socket.userId);
+    const joinName = joiningUser?.username || socket.username;
+    lobby.players.push({ id: socket.userId, name: joinName, isCPU: false, rating: joiningUser?.rating || 1500, avatar: joiningUser?.avatar || null });
     socket.join(`lobby_${lobbyId}`);
     io.to(`lobby_${lobbyId}`).emit('lobbyUpdated', lobby);
     broadcastLobbyLists();
@@ -392,8 +470,20 @@ io.on('connection', (socket) => {
     if (lobby.players.length >= lobby.maxPlayers) return socket.emit('error', { message: 'Lobby full' });
 
     const cpuId = `cpu_${uuidv4().slice(0, 6)}`;
-    lobby.players.push({ id: cpuId, name: `CPU ${lobby.players.length}`, isCPU: true });
+    lobby.players.push({ id: cpuId, name: `CPU ${lobby.players.length}`, isCPU: true, rating: null, avatar: null });
     io.to(`lobby_${lobbyId}`).emit('lobbyUpdated', lobby);
+    broadcastLobbyLists();
+  });
+
+  socket.on('changeMaxPlayers', ({ lobbyId, delta }) => {
+    const lobby = lobbies.get(lobbyId);
+    if (!lobby || lobby.host !== socket.userId) return;
+    const newMax = lobby.maxPlayers + delta;
+    if (newMax < lobby.players.length) return socket.emit('error', { message: 'Cannot reduce below current player count' });
+    if (newMax < 2 || newMax > 4) return;
+    lobby.maxPlayers = newMax;
+    io.to(`lobby_${lobbyId}`).emit('lobbyUpdated', lobby);
+    broadcastLobbyLists();
   });
 
   socket.on('startGame', ({ lobbyId }) => {
@@ -404,9 +494,17 @@ io.on('connection', (socket) => {
     lobby.started = true;
     const playerIds = lobby.players.map(p => p.id);
     const playerNames = lobby.players.map(p => p.name);
-    const game = createGame(playerIds, playerNames, lobby.targetScore);
+    const game = createGame(playerIds, playerNames, lobby.targetScore, lobby.timeControl);
     game.lobbyId = lobbyId;
     game.cpuPlayers = lobby.players.filter(p => p.isCPU).map(p => p.id);
+    // Attach avatar and isCPU to game players
+    for (const lp of lobby.players) {
+      const gp = game.players.find(p => p.id === lp.id);
+      if (gp) {
+        gp.avatar = lp.avatar || null;
+        gp.isCPU = lp.isCPU || false;
+      }
+    }
     activeGames.set(game.id, game);
 
     // Move all human sockets to game room and track activity
@@ -432,9 +530,12 @@ io.on('connection', (socket) => {
 
     broadcastLobbyLists();
 
+    // Start the turn clock for the first player
+    startTurnClock(game);
+
     // If first player is CPU, trigger their turn
     if (game.cpuPlayers.includes(game.players[game.currentPlayerIndex].id)) {
-      setTimeout(() => processCpuTurn(game), 3000);
+      setTimeout(() => processCpuTurn(game), 6000);
     }
   });
 
@@ -530,7 +631,7 @@ io.on('connection', (socket) => {
       cleanupGameIfAbandoned(game);
       const next = game.players[game.currentPlayerIndex];
       if (game.phase !== 'ended' && game.cpuPlayers?.includes(next.id) && !next.resigned) {
-        setTimeout(() => processCpuTurn(game), 3000);
+        setTimeout(() => processCpuTurn(game), 6000);
       }
     }
   });
@@ -542,6 +643,27 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    const activity = playerActivity.get(socket.userId);
+
+    // If player is in an active game, give them a grace period to reconnect
+    if (activity && activity.role === 'playing') {
+      const game = activeGames.get(activity.gameId);
+      if (game && game.phase !== 'ended') {
+        // Set a 30-second reconnection timer
+        const timer = setTimeout(() => {
+          // Only resign if still disconnected (no new socket for this user)
+          if (!playerSockets.has(socket.userId)) {
+            clearPlayerActivity(socket.userId);
+          }
+          disconnectTimers.delete(socket.userId);
+        }, 30000);
+        disconnectTimers.set(socket.userId, timer);
+        playerSockets.delete(socket.userId);
+        socketPlayers.delete(socket.id);
+        return;
+      }
+    }
+
     clearPlayerActivity(socket.userId);
     playerSockets.delete(socket.userId);
     socketPlayers.delete(socket.id);
@@ -564,6 +686,17 @@ function applyRatings(game) {
 
   const humanPlayers = game.players.filter(p => !game.cpuPlayers?.includes(p.id));
   const ratingChanges = {};
+  const today = new Date().toISOString().split('T')[0];
+
+  // Snapshot daily/weekly stats BEFORE updating (for challenge completion detection)
+  const preStats = {};
+  for (const p of humanPlayers) {
+    const { getDailyStats, getWeeklyStats } = require('./db');
+    preStats[p.id] = {
+      daily: getDailyStats(p.id, today),
+      weekly: getWeeklyStats(p.id),
+    };
+  }
 
   if (humanPlayers.length >= 2) {
     const winner = getUserById(winnerId);
@@ -587,10 +720,16 @@ function applyRatings(game) {
   game.ratingChanges = ratingChanges;
 
   game.newBadges = {};
+  game.completedChallenges = {};
   for (const p of humanPlayers) {
     const earned = checkAndAwardBadges(p.id);
     if (earned.length > 0) {
       game.newBadges[p.id] = earned;
+    }
+    // Check which challenges were just completed this game
+    const challenges = getNewlyCompletedChallenges(p.id, preStats[p.id].daily, preStats[p.id].weekly);
+    if (challenges.length > 0) {
+      game.completedChallenges[p.id] = challenges;
     }
   }
 }
@@ -610,6 +749,7 @@ function broadcastGameState(game) {
       const state = getPublicGameState(game, p.id);
       state.ratingChanges = game.ratingChanges || null;
       state.newBadges = game.newBadges?.[p.id] || null;
+      state.completedChallenges = game.completedChallenges?.[p.id] || null;
       ps.emit('gameState', state);
     }
   }
@@ -625,10 +765,92 @@ function broadcastGameState(game) {
   }
 }
 
+// Track timeout timers per game so they can be cleared
+const gameTimerHandles = new Map(); // gameId -> setTimeout handle
+
+function deductTime(game) {
+  if (!game.timers || !game.turnStartedAt) return;
+  const elapsed = Date.now() - game.turnStartedAt;
+  const idx = game.currentPlayerIndex;
+  game.timers[idx] = Math.max(0, game.timers[idx] - elapsed);
+  // Add increment only when player has ≤ 2 minutes remaining, cap at original time control
+  if (game.timeIncrement && game.timers[idx] > 0 && game.timers[idx] <= 120000) {
+    game.timers[idx] = Math.min(game.timers[idx] + game.timeIncrement, game.timeControl);
+  }
+}
+
+function startTurnClock(game) {
+  if (!game.timers) return;
+  game.turnStartedAt = Date.now();
+
+  // Clear any existing timeout for this game
+  const existing = gameTimerHandles.get(game.id);
+  if (existing) clearTimeout(existing);
+
+  // Skip timer for CPU players
+  const currentPlayer = game.players[game.currentPlayerIndex];
+  if (game.cpuPlayers?.includes(currentPlayer.id)) return;
+
+  const idx = game.currentPlayerIndex;
+  const remaining = game.timers[idx];
+  if (remaining <= 0) return;
+
+  // Schedule auto-timeout
+  const handle = setTimeout(() => {
+    gameTimerHandles.delete(game.id);
+    if (game.phase === 'ended') return;
+    const player = game.players[game.currentPlayerIndex];
+    if (player.id !== currentPlayer.id) return; // turn already advanced
+    // Time's up — player loses
+    game.timers[idx] = 0;
+    player.resigned = true;
+    game.log.push(`${player.name} ran out of time!`);
+
+    const activePlayers = game.players.filter(p => !p.resigned);
+    if (activePlayers.length <= 1) {
+      game.phase = 'ended';
+      if (activePlayers.length === 1) {
+        game.winner = activePlayers[0].id;
+        game.log.push(`${activePlayers[0].name} wins!`);
+      }
+      applyRatings(game);
+      broadcastGameState(game);
+      setTimeout(() => {
+        activeGames.delete(game.id);
+        if (game.lobbyId) lobbies.delete(game.lobbyId);
+        for (const p of game.players) {
+          if (playerActivity.get(p.id)?.gameId === game.id) {
+            playerActivity.delete(p.id);
+          }
+        }
+        broadcastLobbyLists();
+      }, 5000);
+    } else {
+      advanceToNextActivePlayer(game);
+      game.turnNumber++;
+      broadcastGameState(game);
+      startTurnClock(game);
+      // Check if next player is CPU
+      const next = game.players[game.currentPlayerIndex];
+      if (game.cpuPlayers?.includes(next.id) && !next.resigned) {
+        setTimeout(() => processCpuTurn(game), 6000);
+      }
+    }
+  }, remaining);
+  gameTimerHandles.set(game.id, handle);
+}
+
 function finishTurn(game) {
+  // Deduct elapsed time from current player before advancing
+  deductTime(game);
+
   endTurn(game);
 
   if (game.phase === 'ended') {
+    // Clear timer handle
+    const handle = gameTimerHandles.get(game.id);
+    if (handle) { clearTimeout(handle); gameTimerHandles.delete(game.id); }
+
     applyRatings(game);
     broadcastGameState(game);
     setTimeout(() => {
@@ -645,11 +867,14 @@ function finishTurn(game) {
     return;
   }
 
+  // Start clock for next player
+  startTurnClock(game);
+
   broadcastGameState(game);
 
   const nextPlayer = game.players[game.currentPlayerIndex];
   if (game.phase !== 'ended' && !nextPlayer.resigned && game.cpuPlayers && game.cpuPlayers.includes(nextPlayer.id)) {
-    setTimeout(() => processCpuTurn(game), 3000);
+    setTimeout(() => processCpuTurn(game), 6000);
   }
 }
 
@@ -674,6 +899,28 @@ function processCpuTurn(game) {
       break;
     default:
       break;
+  }
+
+  // CPU auto-returns excess chips if over 10
+  if (result && result.needsReturn) {
+    const player = game.players.find(p => p.id === cpuId);
+    const total = Object.values(player.chips).reduce((s, v) => s + v, 0);
+    const excess = total - 10;
+    if (excess > 0) {
+      // Return chips with the most quantity first (least valuable to strategy)
+      const chipsToReturn = {};
+      let remaining = excess;
+      const sorted = Object.entries(player.chips)
+        .filter(([, v]) => v > 0)
+        .sort((a, b) => b[1] - a[1]); // most chips first
+      for (const [color, count] of sorted) {
+        if (remaining <= 0) break;
+        const ret = Math.min(count, remaining);
+        chipsToReturn[color] = ret;
+        remaining -= ret;
+      }
+      returnChips(game, cpuId, chipsToReturn);
+    }
   }
 
   finishTurn(game);

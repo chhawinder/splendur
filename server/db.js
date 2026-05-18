@@ -158,8 +158,16 @@ function getAllUsers() {
   return db.prepare('SELECT username, created_at, total_games, wins, rating FROM users ORDER BY created_at DESC').all();
 }
 
+function updateAvatar(id, avatar) {
+  db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatar, id);
+}
+
+function updateUsername(id, username) {
+  db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, id);
+}
+
 module.exports = {
   createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById,
   updateRating, recordGamePlayed, getDailyStats, getWeeklyStats, getPlayStreak,
-  getUserBadges, awardBadge, getAllUsers
+  getUserBadges, awardBadge, getAllUsers, updateAvatar, updateUsername
 };

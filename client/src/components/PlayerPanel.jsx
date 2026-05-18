@@ -25,6 +25,12 @@ const GEM_ICONS = {
   red: '♦',
 };
 
+const AVATAR_MAP = {
+  merchant: '🧔', duchess: '👸', alchemist: '🧙', knight: '🤴',
+  pirate: '🏴‍☠️', queen: '👑', jester: '🃏', dragon: '🐉',
+  phoenix: '🦅', fox: '🦊', wolf: '🐺', gem: '💎',
+};
+
 export default function PlayerPanel({ player, isCurrentTurn, isMe }) {
   const cardCounts = {};
   for (const card of player.cards) {
@@ -36,6 +42,7 @@ export default function PlayerPanel({ player, isCurrentTurn, isMe }) {
       <div className="player-header">
         <div className="player-name-row">
           {isCurrentTurn && !player.resigned && <span className="turn-arrow">▶</span>}
+          <span className="player-avatar-icon">{player.isCPU ? '🤖' : (AVATAR_MAP[player.avatar] || '👤')}</span>
           <span className="player-name">{player.name}</span>
           {isMe && <span className="you-tag">You</span>}
           {player.resigned && <span className="resigned-tag">Resigned</span>}

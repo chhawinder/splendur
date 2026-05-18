@@ -145,4 +145,28 @@ function getWeeklyChallenges(userId) {
   ];
 }
 
-module.exports = { BADGE_DEFS, checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWeeklyChallenges };
+// Check which daily/weekly challenges were just completed (progress crossed target)
+function getNewlyCompletedChallenges(userId, prevDaily, prevWeekly) {
+  const today = new Date().toISOString().split('T')[0];
+  const daily = getDailyStats(userId, today);
+  const weekly = getWeeklyStats(userId);
+  const completed = [];
+
+  // Daily challenges
+  if (daily.games_played >= 3 && prevDaily.games_played < 3)
+    completed.push({ name: 'Play 3 games today', icon: '📅' });
+  if (daily.games_played >= 5 && prevDaily.games_played < 5)
+    completed.push({ name: 'Play 5 games today', icon: '🏃' });
+  if (daily.games_won >= 3 && prevDaily.games_won < 3)
+    completed.push({ name: 'Win 3 games today', icon: '🌅' });
+
+  // Weekly challenges
+  if (weekly.games_played >= 10 && prevWeekly.games_played < 10)
+    completed.push({ name: 'Play 10 games this week', icon: '📆' });
+  if (weekly.games_won >= 7 && prevWeekly.games_won < 7)
+    completed.push({ name: 'Win 7 games this week', icon: '💪' });
+
+  return completed;
+}
+
+module.exports = { BADGE_DEFS, checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWeeklyChallenges, getNewlyCompletedChallenges };
