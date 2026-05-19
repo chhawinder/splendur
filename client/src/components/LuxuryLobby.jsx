@@ -63,10 +63,20 @@ export default function LuxuryLobby({
     );
   }
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <div className="luxury-lobby">
+      {/* Mobile top bar */}
+      <div className="lux-mobile-topbar">
+        <span className="lux-mobile-brand">SPLENDUR</span>
+        <button className="lux-mobile-hamburger" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+          {mobileMenuOpen ? '\u2715' : '\u2630'}
+        </button>
+      </div>
+
       {/* Sidebar */}
-      <aside className="lux-sidebar">
+      <aside className={`lux-sidebar ${mobileMenuOpen ? 'lux-sidebar-open' : ''}`}>
         <div className="lux-sidebar-brand">SPLENDUR</div>
 
         <div className="lux-sidebar-profile">
@@ -80,22 +90,22 @@ export default function LuxuryLobby({
         </div>
 
         <nav className="lux-sidebar-nav">
-          <a className={`lux-nav-item ${activeTab === 'lobby' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('lobby'); }}>
+          <a className={`lux-nav-item ${activeTab === 'lobby' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('lobby'); setMobileMenuOpen(false); }}>
             <span className="lux-nav-icon">&#9672;</span> LOBBY
           </a>
-          <a className="lux-nav-item" href="#" onClick={e => { e.preventDefault(); onProfile?.(); }}>
+          <a className="lux-nav-item" href="#" onClick={e => { e.preventDefault(); onProfile?.(); setMobileMenuOpen(false); }}>
             <span className="lux-nav-icon">&#9733;</span> PROFILE
           </a>
-          <a className={`lux-nav-item ${activeTab === 'leaderboard' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('leaderboard'); }}>
+          <a className={`lux-nav-item ${activeTab === 'leaderboard' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('leaderboard'); setMobileMenuOpen(false); }}>
             <span className="lux-nav-icon">&#9814;</span> LEADERBOARD
           </a>
-          <a className={`lux-nav-item ${activeTab === 'achievements' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('achievements'); }}>
+          <a className={`lux-nav-item ${activeTab === 'achievements' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('achievements'); setMobileMenuOpen(false); }}>
             <span className="lux-nav-icon">&#127942;</span> ACHIEVEMENTS
           </a>
-          <a className={`lux-nav-item ${activeTab === 'howtoplay' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('howtoplay'); }}>
+          <a className={`lux-nav-item ${activeTab === 'howtoplay' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('howtoplay'); setMobileMenuOpen(false); }}>
             <span className="lux-nav-icon">&#9432;</span> HOW TO PLAY
           </a>
-          <a className="lux-nav-item" href="#" onClick={e => { e.preventDefault(); onLogout?.(); }} style={{ marginTop: 'auto' }}>
+          <a className="lux-nav-item" href="#" onClick={e => { e.preventDefault(); onLogout?.(); setMobileMenuOpen(false); }} style={{ marginTop: 'auto' }}>
             <span className="lux-nav-icon">&#x2190;</span> LOGOUT
           </a>
         </nav>
@@ -129,7 +139,7 @@ export default function LuxuryLobby({
           <div className="lux-header-stats">
             <div className="lux-stat">
               <span className="lux-stat-label">ACTIVE HEISTS</span>
-              <span className="lux-stat-value">{activeGames.length}</span>
+              <span className="lux-stat-value">{activeGames.length + lobbies.length}</span>
             </div>
             <div className="lux-stat-divider" />
             <div className="lux-stat">
