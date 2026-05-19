@@ -166,8 +166,32 @@ function updateUsername(id, username) {
   db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, id);
 }
 
+function getLeaderboardAllTime() {
+  return db.prepare(
+    'SELECT id, username, avatar, rating, wins, losses, total_games, current_streak, best_streak FROM users ORDER BY rating DESC LIMIT 50'
+  ).all();
+}
+
+function getLeaderboardByPeriod(days) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().split('T')[0];
+  return db.prepare(`
+    SELECT u.id, u.username, u.avatar, u.rating, u.wins, u.losses, u.total_games,
+           u.current_streak, u.best_streak,
+           COALESCE(SUM(ds.games_won), 0) AS period_wins
+    FROM daily_stats ds
+    JOIN users u ON u.id = ds.user_id
+    WHERE ds.date >= ?
+    GROUP BY ds.user_id
+    ORDER BY period_wins DESC
+    LIMIT 50
+  `).all(cutoffStr);
+}
+
 module.exports = {
   createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById,
   updateRating, recordGamePlayed, getDailyStats, getWeeklyStats, getPlayStreak,
-  getUserBadges, awardBadge, getAllUsers, updateAvatar, updateUsername
+  getUserBadges, awardBadge, getAllUsers, updateAvatar, updateUsername,
+  getLeaderboardAllTime, getLeaderboardByPeriod
 };

@@ -6,10 +6,10 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
-const { createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating, recordGamePlayed, updateAvatar, updateUsername } = require('./db');
+const { createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating, recordGamePlayed, updateAvatar, updateUsername, getLeaderboardAllTime, getLeaderboardByPeriod } = require('./db');
 const { createGame, takeChips, returnChips, reserveCard, purchaseCard, endTurn, getPublicGameState } = require('./gameEngine');
 const { cpuTurn } = require('./cpuPlayer');
-const { checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWeeklyChallenges, getNewlyCompletedChallenges } = require('./badges');
+const { BADGE_DEFS, checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWeeklyChallenges, getNewlyCompletedChallenges } = require('./badges');
 
 const app = express();
 const server = http.createServer(app);
@@ -146,6 +146,124 @@ app.get('/api/stats', (req, res) => {
   const db = require('./db');
   const users = db.getAllUsers ? db.getAllUsers() : [];
   res.json({ totalUsers: users.length, users: users.map(u => ({ username: u.username, created_at: u.created_at, total_games: u.total_games })) });
+});
+
+// Leaderboard endpoint (public, no auth required)
+app.get('/api/leaderboard', (req, res) => {
+  try {
+    const period = req.query.period || 'alltime';
+    let players;
+    if (period === 'week') {
+      players = getLeaderboardByPeriod(7).map(p => ({
+        id: p.id, username: p.username, avatar: p.avatar, rating: p.rating,
+        wins: p.wins, losses: p.losses, total_games: p.total_games,
+        current_streak: p.current_streak, best_streak: p.best_streak,
+        weeklyWins: p.period_wins
+      }));
+    } else if (period === 'month') {
+      players = getLeaderboardByPeriod(30).map(p => ({
+        id: p.id, username: p.username, avatar: p.avatar, rating: p.rating,
+        wins: p.wins, losses: p.losses, total_games: p.total_games,
+        current_streak: p.current_streak, best_streak: p.best_streak,
+        monthlyWins: p.period_wins
+      }));
+    } else {
+      players = getLeaderboardAllTime();
+    }
+    res.json({ players });
+  } catch (err) {
+    console.error('Leaderboard error:', err);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
+// Achievements endpoint (auth required)
+app.get('/api/achievements', authMiddleware, (req, res) => {
+  try {
+    const db = require('./db');
+    const user = getUserById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const earnedBadges = db.getUserBadges(req.user.id);
+    const earnedMap = {};
+    for (const b of earnedBadges) {
+      earnedMap[b.badge_key] = b.earned_at;
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const daily = db.getDailyStats(req.user.id, today);
+    const weekly = db.getWeeklyStats(req.user.id);
+
+    const badges = Object.entries(BADGE_DEFS).map(([key, def]) => {
+      const earned = !!earnedMap[key];
+      let progress = 0;
+      let target = 1;
+
+      // Compute progress/target based on badge category and key
+      if (key === 'first_win')       { progress = user.wins; target = 1; }
+      else if (key === 'wins_5')     { progress = user.wins; target = 5; }
+      else if (key === 'wins_10')    { progress = user.wins; target = 10; }
+      else if (key === 'wins_25')    { progress = user.wins; target = 25; }
+      else if (key === 'wins_50')    { progress = user.wins; target = 50; }
+      else if (key === 'wins_100')   { progress = user.wins; target = 100; }
+      else if (key === 'games_10')   { progress = user.total_games; target = 10; }
+      else if (key === 'games_50')   { progress = user.total_games; target = 50; }
+      else if (key === 'games_100')  { progress = user.total_games; target = 100; }
+      else if (key === 'rating_1600') { progress = user.rating; target = 1600; }
+      else if (key === 'rating_1800') { progress = user.rating; target = 1800; }
+      else if (key === 'rating_2000') { progress = user.rating; target = 2000; }
+      else if (key === 'streak_3')   { progress = user.current_streak; target = 3; }
+      else if (key === 'streak_5')   { progress = user.current_streak; target = 5; }
+      else if (key === 'streak_10')  { progress = user.current_streak; target = 10; }
+      else if (key === 'daily_3_games') { progress = daily.games_played; target = 3; }
+      else if (key === 'daily_5_games') { progress = daily.games_played; target = 5; }
+      else if (key === 'daily_3_wins')  { progress = daily.games_won; target = 3; }
+      else if (key === 'daily_perfect') { progress = daily.games_played >= 3 && daily.games_won === daily.games_played ? 1 : 0; target = 1; }
+      else if (key === 'weekly_10_games') { progress = weekly.games_played; target = 10; }
+      else if (key === 'weekly_15_games') { progress = weekly.games_played; target = 15; }
+      else if (key === 'weekly_7_wins')   { progress = weekly.games_won; target = 7; }
+      else if (key.startsWith('login_')) {
+        const playStreak = db.getPlayStreak(req.user.id);
+        const days = parseInt(key.replace('login_', '').replace('_days', ''));
+        progress = playStreak; target = days;
+      }
+      else if (key === 'cpu_1')  { progress = user.cpu_games || 0; target = 1; }
+      else if (key === 'cpu_5')  { progress = user.cpu_games || 0; target = 5; }
+      else if (key === 'cpu_10') { progress = user.cpu_games || 0; target = 10; }
+      else if (key === 'cpu_25') { progress = user.cpu_games || 0; target = 25; }
+
+      return {
+        key,
+        name: def.name,
+        icon: def.icon,
+        desc: def.desc,
+        category: def.category,
+        earned,
+        earned_at: earnedMap[key] || null,
+        progress: Math.min(progress, target),
+        target
+      };
+    });
+
+    const totalBadges = Object.keys(BADGE_DEFS).length;
+    const totalUnlocked = earnedBadges.length;
+
+    res.json({
+      badges,
+      stats: {
+        totalUnlocked,
+        totalBadges,
+        totalGames: user.total_games,
+        totalWins: user.wins,
+        rating: user.rating,
+        currentStreak: user.current_streak,
+        bestStreak: user.best_streak
+      }
+    });
+  } catch (err) {
+    console.error('Achievements error:', err);
+    res.status(500).json({ error: 'Failed to fetch achievements' });
+  }
 });
 
 // Catch-all for SPA (only if client build exists)

@@ -46,13 +46,24 @@ function AppInner() {
 
   const API = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
-  // Fetch fresh user data (wins, etc.)
+  // Fetch fresh user data (wins, etc.) — force re-login if user no longer exists
   function refreshUser() {
     const token = localStorage.getItem('token');
     if (!token) return;
     fetch(`${API}/api/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => setUser(data.user))
+      .then(r => {
+        if (r.status === 404 || r.status === 401) {
+          // User no longer exists (DB wiped) or token invalid — force re-login
+          localStorage.removeItem('token');
+          resetSocket();
+          setUser(null);
+          setSocket(null);
+          setPage('login');
+          return null;
+        }
+        return r.ok ? r.json() : null;
+      })
+      .then(data => { if (data) setUser(data.user); })
       .catch(() => {});
   }
 
@@ -79,6 +90,17 @@ function AppInner() {
         setGameId(gId);
         setIsSpectating(role === 'spectating');
         setPage('game');
+      }
+    });
+    s.on('connect_error', (err) => {
+      console.error('Socket connection error:', err.message);
+      // If auth fails, force re-login
+      if (err.message === 'Authentication required' || err.message === 'Invalid token') {
+        localStorage.removeItem('token');
+        resetSocket();
+        setUser(null);
+        setSocket(null);
+        setPage('login');
       }
     });
     setSocket(s);

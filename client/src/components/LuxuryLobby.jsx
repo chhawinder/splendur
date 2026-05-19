@@ -1,5 +1,9 @@
+import { useState } from 'react';
 import { AVATARS, getAvatarSpriteStyle } from './AvatarSelect';
 import { useTheme } from '../ThemeContext';
+import Leaderboard from './Leaderboard';
+import Achievements from './Achievements';
+import HowToPlay from './HowToPlay';
 
 const AVATAR_MAP = Object.fromEntries(AVATARS.map(a => [a.id, a]));
 const CPU_AVATAR = 'knight'; // Fixed avatar for CPU players
@@ -42,6 +46,7 @@ export default function LuxuryLobby({
 }) {
   const iAmHost = myLobby?.host === myId;
   const { theme, setTheme, themes } = useTheme();
+  const [activeTab, setActiveTab] = useState('lobby');
 
   function renderPlayerAvatars(players) {
     return (
@@ -75,19 +80,19 @@ export default function LuxuryLobby({
         </div>
 
         <nav className="lux-sidebar-nav">
-          <a className="lux-nav-item active" href="#">
+          <a className={`lux-nav-item ${activeTab === 'lobby' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('lobby'); }}>
             <span className="lux-nav-icon">&#9672;</span> LOBBY
           </a>
           <a className="lux-nav-item" href="#" onClick={e => { e.preventDefault(); onProfile?.(); }}>
             <span className="lux-nav-icon">&#9733;</span> PROFILE
           </a>
-          <a className="lux-nav-item" href="#">
+          <a className={`lux-nav-item ${activeTab === 'leaderboard' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('leaderboard'); }}>
             <span className="lux-nav-icon">&#9814;</span> LEADERBOARD
           </a>
-          <a className="lux-nav-item" href="#">
+          <a className={`lux-nav-item ${activeTab === 'achievements' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('achievements'); }}>
             <span className="lux-nav-icon">&#127942;</span> ACHIEVEMENTS
           </a>
-          <a className="lux-nav-item" href="#">
+          <a className={`lux-nav-item ${activeTab === 'howtoplay' ? 'active' : ''}`} href="#" onClick={e => { e.preventDefault(); setActiveTab('howtoplay'); }}>
             <span className="lux-nav-icon">&#9432;</span> HOW TO PLAY
           </a>
           <a className="lux-nav-item" href="#" onClick={e => { e.preventDefault(); onLogout?.(); }} style={{ marginTop: 'auto' }}>
@@ -115,6 +120,10 @@ export default function LuxuryLobby({
 
       {/* Main content */}
       <main className="lux-main">
+        {activeTab === 'leaderboard' && <Leaderboard user={user} />}
+        {activeTab === 'achievements' && <Achievements user={user} />}
+        {activeTab === 'howtoplay' && <HowToPlay />}
+        {activeTab === 'lobby' && <>
         {/* Stats bar */}
         <header className="lux-header">
           <div className="lux-header-stats">
@@ -254,6 +263,7 @@ export default function LuxuryLobby({
             </div>
           )}
         </section>
+        </>}
       </main>
     </div>
   );
