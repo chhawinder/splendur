@@ -39,6 +39,13 @@ export const GEM_STYLES = {
     color: '#ffcccb',
     shadow: '0 4px 12px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,150,150,0.12)',
   },
+  gold: {
+    bg: 'radial-gradient(circle at 28% 22%, #fde68a, #d4af37 50%, #a67c00)',
+    glow: 'rgba(212,175,55,0.4)',
+    border: '3px solid rgba(253,230,138,0.4)',
+    color: '#5c3d00',
+    shadow: '0 4px 12px rgba(164,124,0,0.4), inset 0 2px 4px rgba(253,230,138,0.2)',
+  },
 };
 
 export default function ChipBank({ bank, onTakeChips, isMyTurn, animating }) {
