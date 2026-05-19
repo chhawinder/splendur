@@ -782,6 +782,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
                 <div className="tile-condition">
                   {Object.entries(tile.condition).map(([color, count]) => {
                     const cc = COST_COLORS[color];
+                    if (!cc) return null;
                     return (
                       <div
                         key={color}

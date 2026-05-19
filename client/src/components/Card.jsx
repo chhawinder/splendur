@@ -106,7 +106,7 @@ const COST_COLORS = {
 export default function Card({ card, onClick, small }) {
   const { theme } = useTheme();
 
-  if (!card || card.hidden) {
+  if (!card || card.hidden || !card.discount) {
     return (
       <div className={`card card-hidden ${small ? 'card-small' : ''}`} onClick={onClick}>
         <div className="card-hidden-inner">
@@ -116,9 +116,9 @@ export default function Card({ card, onClick, small }) {
     );
   }
 
-  const costs = Object.entries(card.cost || {}).filter(([, v]) => v > 0);
+  const costs = Object.entries(card.cost || {}).filter(([c, v]) => v > 0 && COST_COLORS[c]);
   const color = card.discount;
-  const body = (CARD_BODY_THEMES[theme] || CARD_BODY_THEMES.dark)[color];
+  const body = (CARD_BODY_THEMES[theme] || CARD_BODY_THEMES.dark)[color] || CARD_BODY_THEMES.dark.black;
   const isWhite = color === 'white';
 
   return (
