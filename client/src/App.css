@@ -2796,6 +2796,10 @@ body {
   background: none; border: none; color: var(--accent); font-size: 1.6rem;
   cursor: pointer; padding: 8px; line-height: 1;
 }
+.lux-mobile-back {
+  background: none; border: none; color: var(--accent); font-size: 0.85rem;
+  font-weight: 700; cursor: pointer; letter-spacing: 0.08em; padding: 8px 0;
+}
 
 /* ============ RESPONSIVE: TABLET (max-width: 1024px) ============ */
 @media (max-width: 1024px) {

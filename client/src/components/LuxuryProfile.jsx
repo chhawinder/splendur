@@ -87,6 +87,13 @@ export default function LuxuryProfile({ profile, setProfile, onBack, onUserUpdat
 
   return (
     <div className="luxury-lobby">
+      {/* Mobile top bar */}
+      <div className="lux-mobile-topbar">
+        <button className="lux-mobile-back" onClick={onBack}>&larr; LOBBY</button>
+        <span className="lux-mobile-brand">PROFILE</span>
+        <span />
+      </div>
+
       {/* Sidebar */}
       <aside className="lux-sidebar">
         <div className="lux-sidebar-brand">SPLENDUR</div>
