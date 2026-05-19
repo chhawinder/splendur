@@ -2846,62 +2846,121 @@ body {
   .lux-room-card { flex-direction: column; }
   .lux-room-img { width: 100%; min-height: 120px; border-right: none; border-bottom: 1px solid rgba(var(--accent-rgb),0.1); }
 
-  /* Game page — stack vertically */
+  /* ---- Game page on mobile ---- */
+  /* Hide theme switcher in game nav */
+  .theme-switcher { display: none; }
+  .top-nav { padding: 6px 12px; }
+  .nav-brand { font-size: 1rem; }
+  .nav-user { font-size: 0.75rem; }
+  .btn-link { font-size: 0.75rem; }
+
+  /* Full-width stacked layout */
   .game-layout {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr auto;
-    gap: 8px; padding: 8px;
+    gap: 6px; padding: 6px; overflow-y: auto; overflow-x: hidden;
   }
-  .top-nav { padding: 0 12px; }
-  .nav-brand { font-size: 1rem; }
-  .players-sidebar { flex-direction: row; overflow-x: auto; gap: 8px; padding-bottom: 6px; }
-  .player-panel { min-width: 160px; padding: 10px; }
-  .player-name { font-size: 0.75rem; }
-  .player-points-big { font-size: 1.3rem; }
-  .player-gem-columns { gap: 4px; }
-  .gem-token { width: 28px; height: 28px; font-size: 0.7rem; }
-  .player-card-chip { width: 28px; height: 28px; }
-  .player-meta { font-size: 0.6rem; gap: 6px; }
-  .board-center { gap: 8px; }
-  .bonus-tiles-row { gap: 6px; }
-  .bonus-tile { min-width: 70px; padding: 8px 10px; border-radius: 10px; }
-  .tile-points { font-size: 0.95rem; }
-  .tile-cond-gem { width: 20px; height: 20px; font-size: 0.6rem; }
-  .card-row { gap: 6px; }
-  .deck-pile { width: 60px; min-height: 90px; border-radius: 8px; }
-  .deck-count { font-size: 1.2rem; }
-  .deck-label { font-size: 0.6rem; }
-  .card { width: 72px; height: 105px; border-radius: 8px; }
-  .card-banner { padding: 4px 6px; }
-  .card-points-display { font-size: 1rem; }
-  .card-gem-icon { font-size: 0.85rem; }
-  .gem-cost-circle { width: 18px; height: 18px; font-size: 0.55rem; }
-  .card-cost-area { gap: 3px; padding: 4px 6px; }
-  .card-hidden-gem { font-size: 1.2rem; }
-  .card-small { width: 60px; height: 88px; }
-  .right-sidebar { flex-direction: row; flex-wrap: wrap; gap: 8px; }
-  .my-reserved { flex: 1; min-width: 150px; }
-  .my-reserved h3 { font-size: 0.8rem; }
-  .game-log { flex: 1; min-width: 150px; max-height: 120px; overflow-y: auto; }
-  .game-log h3 { font-size: 0.8rem; }
-  .log-entry { font-size: 0.7rem; }
-  .turn-indicator { font-size: 0.8rem; width: 100%; text-align: center; }
-  .btn-resign { width: 100%; font-size: 0.8rem; }
-  .chip-bank { gap: 8px; }
-  .gem-chip { width: 44px; height: 44px; }
-  .gem-chip-count { font-size: 0.9rem; }
-  .chip-stack-label { font-size: 0.55rem; }
-  .game-over-banner { padding: 12px; }
-  .game-over-title { font-size: 1.2rem; }
-  .chess-clock { padding: 4px 8px; font-size: 0.7rem; }
-  .card-modal-preview .card { width: 140px; height: 200px; }
-  .spectator-banner { font-size: 0.75rem; padding: 6px; }
-  /* reserved cards in right sidebar */
-  .reserved-cards-list { gap: 6px; }
+
+  /* Compact horizontal player strip */
+  .players-sidebar {
+    flex-direction: row; overflow-x: auto; gap: 6px;
+    padding: 0 0 4px; -webkit-overflow-scrolling: touch;
+  }
+  .player-panel {
+    min-width: 0; flex: 1; padding: 8px 10px;
+    border-radius: 10px;
+  }
+  .player-header { gap: 4px; }
+  .player-name-row { gap: 4px; }
+  .player-name { font-size: 0.7rem; }
+  .player-avatar-icon { font-size: 0.9rem; }
+  .player-points-big { font-size: 1.1rem; }
+  .you-tag { font-size: 0.5rem; padding: 1px 4px; }
+  .turn-arrow { font-size: 0.6rem; }
+  .player-gem-columns { gap: 3px; }
+  .gem-token { width: 24px; height: 24px; font-size: 0.65rem; border-width: 1.5px !important; }
+  .gem-count { font-size: 0.65rem; }
+  .player-card-chip { width: 24px; height: 24px; font-size: 0.55rem; }
+  .player-card-gem { width: 14px; height: 14px; font-size: 0.5rem; }
+  .player-card-count { font-size: 0.55rem; }
+  .player-meta { font-size: 0.55rem; gap: 6px; margin-top: 4px; }
+
+  /* Board area */
+  .board-center { gap: 6px; }
+
+  /* Nobles row */
+  .bonus-tiles-row { gap: 5px; }
+  .bonus-tile { min-width: 0; flex: 1; padding: 6px 8px; border-radius: 8px; }
+  .tile-points { font-size: 0.85rem; }
+  .tile-cond-gem { width: 18px; height: 18px; font-size: 0.55rem; }
+  .tile-condition { gap: 4px; margin-top: 4px; }
+
+  /* Card rows — fill available width */
+  .card-row { gap: 4px; justify-content: center; }
+  .deck-pile { width: 48px; min-height: 72px; border-radius: 6px; }
+  .deck-count { font-size: 1rem; }
+  .deck-label { font-size: 0.55rem; }
+  .card {
+    width: calc((100vw - 48px - 6 * 4px) / 5); /* 5 items: deck + 4 cards */
+    max-width: 72px;
+    height: auto; aspect-ratio: 5/7;
+    border-radius: 7px;
+  }
+  .card-banner { padding: 3px 5px; }
+  .card-points-display { font-size: 0.9rem; }
+  .card-gem-icon { font-size: 0.75rem; }
+  .card-gem-icon svg { width: 0.7em; height: 0.7em; }
+  .gem-cost-circle { width: 16px; height: 16px; font-size: 0.5rem; border-width: 1px; }
+  .card-cost-area { gap: 2px; padding: 3px 4px; }
+  .card-texture { display: none; }
+  .card-hidden-gem { font-size: 1rem; }
+  .card-small { width: 54px; height: 78px; }
+  .card:hover { transform: none; } /* disable hover lift on touch */
+
+  /* Chip bank */
+  .chip-bank { padding: 10px 8px; border-radius: 10px; }
+  .chip-bank-label { font-size: 0.65rem; margin-bottom: 8px; letter-spacing: 2px; }
+  .chips-row { gap: 6px; }
+  .gem-chip { width: 40px; height: 40px; border-width: 2px !important; }
+  .gem-chip-count { font-size: 0.8rem; }
+  .gem-chip-badge { font-size: 0.55rem; top: -6px; right: -4px; min-width: 16px; height: 16px; }
+  .gem-chip-star { font-size: 0.5rem; }
+  .chip-stack-label { font-size: 0.5rem; letter-spacing: 0.5px; }
+  .chip-bank-actions { gap: 6px; margin-top: 8px; }
+  .chip-bank-actions button { font-size: 0.7rem; padding: 6px 12px; }
+
+  /* Bottom section: reserved + log side by side, then turn + resign */
+  .right-sidebar {
+    display: grid; grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto; gap: 6px;
+  }
+  .my-reserved { grid-column: 1; }
+  .my-reserved h3 { font-size: 0.75rem; margin: 0 0 4px; }
+  .reserved-cards-list { gap: 4px; }
+  .game-log { grid-column: 2; max-height: 100px; overflow-y: auto; }
+  .game-log h3 { font-size: 0.75rem; margin: 0 0 4px; }
+  .log-entry { font-size: 0.65rem; padding: 2px 0; }
+  .turn-indicator {
+    grid-column: 1 / -1; text-align: center;
+    font-size: 0.8rem; padding: 8px 0 4px;
+  }
+  .turn-timer { font-size: 0.75rem; }
+  .btn-resign { grid-column: 1 / -1; width: 100%; font-size: 0.8rem; padding: 10px; }
+
+  /* Game over / misc */
+  .game-over-banner { padding: 10px; }
+  .game-over-title { font-size: 1.1rem; }
+  .rating-change { font-size: 0.8rem; }
+  .chess-clock { padding: 3px 6px; font-size: 0.65rem; }
+  .card-modal-preview .card { width: 140px; height: 200px; max-width: none; aspect-ratio: unset; }
+  .card-modal { padding: 20px; }
+  .card-modal-actions { gap: 10px; }
+  .spectator-banner { font-size: 0.7rem; padding: 5px; }
 }
 
 /* ============ RESPONSIVE: SMALL PHONE (max-width: 480px) ============ */
 @media (max-width: 480px) {
+  /* Lobby */
   .lux-main { padding: 10px; padding-top: 66px; }
   .lux-hero { height: 130px; }
   .lux-hero-title { font-size: 1.1rem; }
@@ -2913,17 +2972,19 @@ body {
   .lux-section-title { font-size: 1rem; }
   .lux-room-player-chip { gap: 6px; }
 
-  /* Game page — even tighter */
-  .game-layout { padding: 4px; gap: 6px; }
-  .player-panel { min-width: 140px; padding: 8px; }
-  .card { width: 60px; height: 88px; }
-  .deck-pile { width: 50px; min-height: 75px; }
-  .deck-count { font-size: 1rem; }
-  .bonus-tile { min-width: 56px; padding: 6px; }
-  .tile-points { font-size: 0.8rem; }
-  .tile-cond-gem { width: 16px; height: 16px; font-size: 0.5rem; }
-  .gem-chip { width: 38px; height: 38px; }
-  .gem-chip-count { font-size: 0.8rem; }
+  /* Game — even tighter */
+  .game-layout { padding: 4px; gap: 4px; }
+  .player-panel { padding: 6px 8px; }
+  .gem-token { width: 22px; height: 22px; font-size: 0.6rem; }
+  .player-card-chip { width: 22px; height: 22px; }
+  .card { max-width: 62px; }
+  .deck-pile { width: 42px; min-height: 64px; }
+  .deck-count { font-size: 0.9rem; }
+  .bonus-tile { padding: 5px 6px; }
+  .tile-points { font-size: 0.75rem; }
+  .tile-cond-gem { width: 15px; height: 15px; font-size: 0.45rem; }
+  .gem-chip { width: 36px; height: 36px; }
+  .gem-chip-count { font-size: 0.75rem; }
   .card-modal-preview .card { width: 120px; height: 170px; }
 }
 
