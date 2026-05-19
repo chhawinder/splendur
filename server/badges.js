@@ -36,7 +36,7 @@ const BADGE_DEFS = {
 
   // === PLAY STREAK (consecutive days) ===
   login_3_days:    { name: 'Consistent',         icon: '📌',  desc: 'Play 3 days in a row',              category: 'loyalty' },
-  login_7_days:    { name: 'Weekly Ritual',      icon: '🗓️',  desc: 'Play 7 days in a row',              category: 'loyalty' },
+  login_7_days:    { name: 'Weekly Ritual',       icon: '🗓️',  desc: 'Play 7 days in a row',              category: 'loyalty' },
   login_14_days:   { name: 'Addicted',           icon: '🧲',  desc: 'Play 14 days in a row',             category: 'loyalty' },
   login_30_days:   { name: 'Splendur Veteran',   icon: '🎖️',  desc: 'Play 30 days in a row',             category: 'loyalty' },
 
@@ -47,86 +47,86 @@ const BADGE_DEFS = {
   cpu_25:          { name: 'AI Overlord',        icon: '🧠',  desc: 'Play 25 games against CPU',         category: 'cpu' },
 };
 
-function checkAndAwardBadges(userId) {
-  const user = getUserById(userId);
+async function checkAndAwardBadges(userId) {
+  const user = await getUserById(userId);
   if (!user) return [];
 
   const today = new Date().toISOString().split('T')[0];
-  const daily = getDailyStats(userId, today);
-  const weekly = getWeeklyStats(userId);
-  const playStreak = getPlayStreak(userId);
-  const existingBadges = new Set(getUserBadges(userId).map(b => b.badge_key));
+  const daily = await getDailyStats(userId, today);
+  const weekly = await getWeeklyStats(userId);
+  const playStreak = await getPlayStreak(userId);
+  const existingBadges = new Set((await getUserBadges(userId)).map(b => b.badge_key));
 
   const newBadges = [];
 
-  function tryAward(key) {
+  async function tryAward(key) {
     if (!existingBadges.has(key)) {
-      if (awardBadge(userId, key)) {
+      if (await awardBadge(userId, key)) {
         newBadges.push({ key, ...BADGE_DEFS[key] });
       }
     }
   }
 
   // Milestone checks
-  if (user.wins >= 1)   tryAward('first_win');
-  if (user.wins >= 5)   tryAward('wins_5');
-  if (user.wins >= 10)  tryAward('wins_10');
-  if (user.wins >= 25)  tryAward('wins_25');
-  if (user.wins >= 50)  tryAward('wins_50');
-  if (user.wins >= 100) tryAward('wins_100');
-  if (user.total_games >= 10)  tryAward('games_10');
-  if (user.total_games >= 50)  tryAward('games_50');
-  if (user.total_games >= 100) tryAward('games_100');
+  if (user.wins >= 1)   await tryAward('first_win');
+  if (user.wins >= 5)   await tryAward('wins_5');
+  if (user.wins >= 10)  await tryAward('wins_10');
+  if (user.wins >= 25)  await tryAward('wins_25');
+  if (user.wins >= 50)  await tryAward('wins_50');
+  if (user.wins >= 100) await tryAward('wins_100');
+  if (user.total_games >= 10)  await tryAward('games_10');
+  if (user.total_games >= 50)  await tryAward('games_50');
+  if (user.total_games >= 100) await tryAward('games_100');
 
   // Rating checks
-  if (user.rating >= 1600) tryAward('rating_1600');
-  if (user.rating >= 1800) tryAward('rating_1800');
-  if (user.rating >= 2000) tryAward('rating_2000');
+  if (user.rating >= 1600) await tryAward('rating_1600');
+  if (user.rating >= 1800) await tryAward('rating_1800');
+  if (user.rating >= 2000) await tryAward('rating_2000');
 
   // Streak checks
-  if (user.current_streak >= 3)  tryAward('streak_3');
-  if (user.current_streak >= 5)  tryAward('streak_5');
-  if (user.current_streak >= 10) tryAward('streak_10');
+  if (user.current_streak >= 3)  await tryAward('streak_3');
+  if (user.current_streak >= 5)  await tryAward('streak_5');
+  if (user.current_streak >= 10) await tryAward('streak_10');
 
   // Daily challenges
-  if (daily.games_played >= 3) tryAward('daily_3_games');
-  if (daily.games_played >= 5) tryAward('daily_5_games');
-  if (daily.games_won >= 3)    tryAward('daily_3_wins');
-  if (daily.games_played >= 3 && daily.games_won === daily.games_played) tryAward('daily_perfect');
+  if (daily.games_played >= 3) await tryAward('daily_3_games');
+  if (daily.games_played >= 5) await tryAward('daily_5_games');
+  if (daily.games_won >= 3)    await tryAward('daily_3_wins');
+  if (daily.games_played >= 3 && daily.games_won === daily.games_played) await tryAward('daily_perfect');
 
   // Weekly challenges
-  if (weekly.games_played >= 10) tryAward('weekly_10_games');
-  if (weekly.games_played >= 15) tryAward('weekly_15_games');
-  if (weekly.games_won >= 7)     tryAward('weekly_7_wins');
+  if (weekly.games_played >= 10) await tryAward('weekly_10_games');
+  if (weekly.games_played >= 15) await tryAward('weekly_15_games');
+  if (weekly.games_won >= 7)     await tryAward('weekly_7_wins');
 
   // Play streak (consecutive days)
-  if (playStreak >= 3)  tryAward('login_3_days');
-  if (playStreak >= 7)  tryAward('login_7_days');
-  if (playStreak >= 14) tryAward('login_14_days');
-  if (playStreak >= 30) tryAward('login_30_days');
+  if (playStreak >= 3)  await tryAward('login_3_days');
+  if (playStreak >= 7)  await tryAward('login_7_days');
+  if (playStreak >= 14) await tryAward('login_14_days');
+  if (playStreak >= 30) await tryAward('login_30_days');
 
   // CPU badges
   const cpuGames = user.cpu_games || 0;
-  if (cpuGames >= 1)  tryAward('cpu_1');
-  if (cpuGames >= 5)  tryAward('cpu_5');
-  if (cpuGames >= 10) tryAward('cpu_10');
-  if (cpuGames >= 25) tryAward('cpu_25');
+  if (cpuGames >= 1)  await tryAward('cpu_1');
+  if (cpuGames >= 5)  await tryAward('cpu_5');
+  if (cpuGames >= 10) await tryAward('cpu_10');
+  if (cpuGames >= 25) await tryAward('cpu_25');
 
   return newBadges;
 }
 
-function getPlayerBadgesWithDefs(userId) {
-  const badges = getUserBadges(userId);
+async function getPlayerBadgesWithDefs(userId) {
+  const badges = await getUserBadges(userId);
   return badges.map(b => ({
     ...b,
     ...BADGE_DEFS[b.badge_key],
   }));
 }
 
-function getDailyChallenges(userId) {
+async function getDailyChallenges(userId) {
   const today = new Date().toISOString().split('T')[0];
-  const daily = getDailyStats(userId, today);
-  const existingBadges = new Set(getUserBadges(userId).map(b => b.badge_key));
+  const daily = await getDailyStats(userId, today);
+  const existingBadges = new Set((await getUserBadges(userId)).map(b => b.badge_key));
 
   return [
     { id: 'daily_3_games', name: 'Play 3 games today', icon: '📅', progress: daily.games_played, target: 3, done: existingBadges.has('daily_3_games') || daily.games_played >= 3 },
@@ -135,9 +135,9 @@ function getDailyChallenges(userId) {
   ];
 }
 
-function getWeeklyChallenges(userId) {
-  const weekly = getWeeklyStats(userId);
-  const existingBadges = new Set(getUserBadges(userId).map(b => b.badge_key));
+async function getWeeklyChallenges(userId) {
+  const weekly = await getWeeklyStats(userId);
+  const existingBadges = new Set((await getUserBadges(userId)).map(b => b.badge_key));
 
   return [
     { id: 'weekly_10_games', name: 'Play 10 games this week', icon: '📆', progress: weekly.games_played, target: 10, done: existingBadges.has('weekly_10_games') || weekly.games_played >= 10 },
@@ -146,10 +146,10 @@ function getWeeklyChallenges(userId) {
 }
 
 // Check which daily/weekly challenges were just completed (progress crossed target)
-function getNewlyCompletedChallenges(userId, prevDaily, prevWeekly) {
+async function getNewlyCompletedChallenges(userId, prevDaily, prevWeekly) {
   const today = new Date().toISOString().split('T')[0];
-  const daily = getDailyStats(userId, today);
-  const weekly = getWeeklyStats(userId);
+  const daily = await getDailyStats(userId, today);
+  const weekly = await getWeeklyStats(userId);
   const completed = [];
 
   // Daily challenges

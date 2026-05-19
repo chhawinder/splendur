@@ -6,7 +6,8 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
-const { createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating, recordGamePlayed, updateAvatar, updateUsername, getLeaderboardAllTime, getLeaderboardByPeriod } = require('./db');
+const db = require('./db');
+const { initDb, createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating, recordGamePlayed, updateAvatar, updateUsername, getLeaderboardAllTime, getLeaderboardByPeriod, getDailyStats, getWeeklyStats, getPlayStreak, getUserBadges, getAllUsers } = db;
 const { createGame, takeChips, returnChips, reserveCard, purchaseCard, endTurn, getPublicGameState } = require('./gameEngine');
 const { cpuTurn } = require('./cpuPlayer');
 const { BADGE_DEFS, checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWeeklyChallenges, getNewlyCompletedChallenges } = require('./badges');
@@ -41,13 +42,13 @@ app.post('/api/auth/google', async (req, res) => {
     const { sub: googleId, email, name, picture } = payload;
     if (!email) return res.status(400).json({ error: 'No email in token' });
 
-    let user = getUserByGoogleId(googleId) || getUserByEmail(email);
+    let user = await getUserByGoogleId(googleId) || await getUserByEmail(email);
 
     if (!user) {
       const id = uuidv4();
       const username = name || email.split('@')[0];
-      createGoogleUser(id, username, email, googleId, picture);
-      user = getUserById(id);
+      await createGoogleUser(id, username, email, googleId, picture);
+      user = await getUserById(id);
     }
 
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
@@ -61,12 +62,12 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
-app.get('/api/me', (req, res) => {
+app.get('/api/me', async (req, res) => {
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ error: 'No token' });
   try {
     const decoded = jwt.verify(auth.replace('Bearer ', ''), JWT_SECRET);
-    const user = getUserById(decoded.id);
+    const user = await getUserById(decoded.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json({ user });
   } catch {
@@ -74,22 +75,22 @@ app.get('/api/me', (req, res) => {
   }
 });
 
-app.post('/api/avatar', (req, res) => {
+app.post('/api/avatar', async (req, res) => {
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ error: 'No token' });
   try {
     const decoded = jwt.verify(auth.replace('Bearer ', ''), JWT_SECRET);
     const { avatar } = req.body;
     if (!avatar) return res.status(400).json({ error: 'No avatar provided' });
-    updateAvatar(decoded.id, avatar);
-    const user = getUserById(decoded.id);
+    await updateAvatar(decoded.id, avatar);
+    const user = await getUserById(decoded.id);
     res.json({ user });
   } catch {
     res.status(401).json({ error: 'Invalid token' });
   }
 });
 
-app.post('/api/username', (req, res) => {
+app.post('/api/username', async (req, res) => {
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ error: 'No token' });
   try {
@@ -98,11 +99,11 @@ app.post('/api/username', (req, res) => {
     if (!username || username.trim().length < 2 || username.trim().length > 20) {
       return res.status(400).json({ error: 'Username must be 2-20 characters' });
     }
-    updateUsername(decoded.id, username.trim());
-    const user = getUserById(decoded.id);
+    await updateUsername(decoded.id, username.trim());
+    const user = await getUserById(decoded.id);
     res.json({ user });
   } catch (e) {
-    if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    if (e.code === '23505') {
       return res.status(400).json({ error: 'Username already taken' });
     }
     res.status(401).json({ error: 'Invalid token' });
@@ -121,54 +122,53 @@ function authMiddleware(req, res, next) {
   }
 }
 
-app.get('/api/badges', authMiddleware, (req, res) => {
-  const badges = getPlayerBadgesWithDefs(req.user.id);
+app.get('/api/badges', authMiddleware, async (req, res) => {
+  const badges = await getPlayerBadgesWithDefs(req.user.id);
   res.json({ badges });
 });
 
-app.get('/api/challenges', authMiddleware, (req, res) => {
-  const daily = getDailyChallenges(req.user.id);
-  const weekly = getWeeklyChallenges(req.user.id);
+app.get('/api/challenges', authMiddleware, async (req, res) => {
+  const daily = await getDailyChallenges(req.user.id);
+  const weekly = await getWeeklyChallenges(req.user.id);
   res.json({ daily, weekly });
 });
 
-app.get('/api/profile', authMiddleware, (req, res) => {
-  const user = getUserById(req.user.id);
+app.get('/api/profile', authMiddleware, async (req, res) => {
+  const user = await getUserById(req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const badges = getPlayerBadgesWithDefs(req.user.id);
-  const daily = getDailyChallenges(req.user.id);
-  const weekly = getWeeklyChallenges(req.user.id);
+  const badges = await getPlayerBadgesWithDefs(req.user.id);
+  const daily = await getDailyChallenges(req.user.id);
+  const weekly = await getWeeklyChallenges(req.user.id);
   res.json({ user, badges, daily, weekly });
 });
 
 // Admin stats endpoint
-app.get('/api/stats', (req, res) => {
-  const db = require('./db');
-  const users = db.getAllUsers ? db.getAllUsers() : [];
+app.get('/api/stats', async (req, res) => {
+  const users = await getAllUsers();
   res.json({ totalUsers: users.length, users: users.map(u => ({ username: u.username, created_at: u.created_at, total_games: u.total_games })) });
 });
 
 // Leaderboard endpoint (public, no auth required)
-app.get('/api/leaderboard', (req, res) => {
+app.get('/api/leaderboard', async (req, res) => {
   try {
     const period = req.query.period || 'alltime';
     let players;
     if (period === 'week') {
-      players = getLeaderboardByPeriod(7).map(p => ({
+      players = (await getLeaderboardByPeriod(7)).map(p => ({
         id: p.id, username: p.username, avatar: p.avatar, rating: p.rating,
         wins: p.wins, losses: p.losses, total_games: p.total_games,
         current_streak: p.current_streak, best_streak: p.best_streak,
         weeklyWins: p.period_wins
       }));
     } else if (period === 'month') {
-      players = getLeaderboardByPeriod(30).map(p => ({
+      players = (await getLeaderboardByPeriod(30)).map(p => ({
         id: p.id, username: p.username, avatar: p.avatar, rating: p.rating,
         wins: p.wins, losses: p.losses, total_games: p.total_games,
         current_streak: p.current_streak, best_streak: p.best_streak,
         monthlyWins: p.period_wins
       }));
     } else {
-      players = getLeaderboardAllTime();
+      players = await getLeaderboardAllTime();
     }
     res.json({ players });
   } catch (err) {
@@ -178,23 +178,23 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // Achievements endpoint (auth required)
-app.get('/api/achievements', authMiddleware, (req, res) => {
+app.get('/api/achievements', authMiddleware, async (req, res) => {
   try {
-    const db = require('./db');
-    const user = getUserById(req.user.id);
+    const user = await getUserById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const earnedBadges = db.getUserBadges(req.user.id);
+    const earnedBadges = await getUserBadges(req.user.id);
     const earnedMap = {};
     for (const b of earnedBadges) {
       earnedMap[b.badge_key] = b.earned_at;
     }
 
     const today = new Date().toISOString().split('T')[0];
-    const daily = db.getDailyStats(req.user.id, today);
-    const weekly = db.getWeeklyStats(req.user.id);
+    const daily = await getDailyStats(req.user.id, today);
+    const weekly = await getWeeklyStats(req.user.id);
 
-    const badges = Object.entries(BADGE_DEFS).map(([key, def]) => {
+    const badges = [];
+    for (const [key, def] of Object.entries(BADGE_DEFS)) {
       const earned = !!earnedMap[key];
       let progress = 0;
       let target = 1;
@@ -223,7 +223,7 @@ app.get('/api/achievements', authMiddleware, (req, res) => {
       else if (key === 'weekly_15_games') { progress = weekly.games_played; target = 15; }
       else if (key === 'weekly_7_wins')   { progress = weekly.games_won; target = 7; }
       else if (key.startsWith('login_')) {
-        const playStreak = db.getPlayStreak(req.user.id);
+        const playStreak = await getPlayStreak(req.user.id);
         const days = parseInt(key.replace('login_', '').replace('_days', ''));
         progress = playStreak; target = days;
       }
@@ -232,7 +232,7 @@ app.get('/api/achievements', authMiddleware, (req, res) => {
       else if (key === 'cpu_10') { progress = user.cpu_games || 0; target = 10; }
       else if (key === 'cpu_25') { progress = user.cpu_games || 0; target = 25; }
 
-      return {
+      badges.push({
         key,
         name: def.name,
         icon: def.icon,
@@ -242,8 +242,8 @@ app.get('/api/achievements', authMiddleware, (req, res) => {
         earned_at: earnedMap[key] || null,
         progress: Math.min(progress, target),
         target
-      };
-    });
+      });
+    }
 
     const totalBadges = Object.keys(BADGE_DEFS).length;
     const totalUnlocked = earnedBadges.length;
@@ -321,7 +321,7 @@ function cleanupGameIfAbandoned(game) {
 }
 
 // Remove player from whatever they're doing (game/spectating)
-function clearPlayerActivity(userId) {
+async function clearPlayerActivity(userId) {
   const activity = playerActivity.get(userId);
   if (!activity) return;
 
@@ -354,7 +354,7 @@ function clearPlayerActivity(userId) {
           game.winner = activePlayers[0].id;
           game.log.push(`${activePlayers[0].name} wins!`);
         }
-        applyRatings(game);
+        await applyRatings(game);
         broadcastGameState(game);
         setTimeout(() => {
           activeGames.delete(game.id);
@@ -428,7 +428,7 @@ io.on('connection', (socket) => {
   });
 
   // ---- LOBBY ----
-  socket.on('createLobby', ({ name, maxPlayers, targetScore, timeControl }) => {
+  socket.on('createLobby', async ({ name, maxPlayers, targetScore, timeControl }) => {
     // Must not be in an active game
     const activity = playerActivity.get(socket.userId);
     if (activity) {
@@ -442,7 +442,7 @@ io.on('connection', (socket) => {
     }
 
     const lobbyId = uuidv4().slice(0, 8);
-    const hostUser = getUserById(socket.userId);
+    const hostUser = await getUserById(socket.userId);
     const freshName = hostUser?.username || socket.username;
     const lobby = {
       id: lobbyId,
@@ -524,7 +524,7 @@ io.on('connection', (socket) => {
     playerActivity.delete(socket.userId);
   });
 
-  socket.on('joinLobby', ({ lobbyId }) => {
+  socket.on('joinLobby', async ({ lobbyId }) => {
     const activity = playerActivity.get(socket.userId);
     if (activity) {
       return socket.emit('error', { message: 'You are already in a game. Leave it first.' });
@@ -536,7 +536,7 @@ io.on('connection', (socket) => {
     if (lobby.players.length >= lobby.maxPlayers) return socket.emit('error', { message: 'Lobby full' });
     if (lobby.players.find(p => p.id === socket.userId)) return socket.emit('error', { message: 'Already in lobby' });
 
-    const joiningUser = getUserById(socket.userId);
+    const joiningUser = await getUserById(socket.userId);
     const joinName = joiningUser?.username || socket.username;
     lobby.players.push({ id: socket.userId, name: joinName, isCPU: false, rating: joiningUser?.rating || 1500, avatar: joiningUser?.avatar || null });
     socket.join(`lobby_${lobbyId}`);
@@ -700,7 +700,7 @@ io.on('connection', (socket) => {
     finishTurn(game);
   });
 
-  socket.on('resign', ({ gameId }) => {
+  socket.on('resign', async ({ gameId }) => {
     const game = activeGames.get(gameId);
     if (!game || game.phase === 'ended') return;
 
@@ -728,7 +728,7 @@ io.on('connection', (socket) => {
         game.winner = activePlayers[0].id;
         game.log.push(`${activePlayers[0].name} wins!`);
       }
-      applyRatings(game);
+      await applyRatings(game);
       broadcastGameState(game);
       setTimeout(() => {
         activeGames.delete(game.id);
@@ -795,7 +795,7 @@ function calculateElo(winnerRating, loserRating, K = 32) {
   return { winnerNew, loserNew, winnerGain: winnerNew - winnerRating, loserLoss: loserRating - loserNew };
 }
 
-function applyRatings(game) {
+async function applyRatings(game) {
   if (game.ratingsApplied) return;
   game.ratingsApplied = true;
 
@@ -809,30 +809,29 @@ function applyRatings(game) {
   // Snapshot daily/weekly stats BEFORE updating (for challenge completion detection)
   const preStats = {};
   for (const p of humanPlayers) {
-    const { getDailyStats, getWeeklyStats } = require('./db');
     preStats[p.id] = {
-      daily: getDailyStats(p.id, today),
-      weekly: getWeeklyStats(p.id),
+      daily: await getDailyStats(p.id, today),
+      weekly: await getWeeklyStats(p.id),
     };
   }
 
   if (humanPlayers.length >= 2) {
-    const winner = getUserById(winnerId);
+    const winner = await getUserById(winnerId);
     if (winner) {
       const losers = humanPlayers.filter(p => p.id !== winnerId);
       for (const loser of losers) {
-        const loserUser = getUserById(loser.id);
+        const loserUser = await getUserById(loser.id);
         if (!loserUser) continue;
         const { winnerNew, loserNew, winnerGain, loserLoss } = calculateElo(winner.rating, loserUser.rating);
-        updateRating(winnerId, winnerNew, true);
-        updateRating(loser.id, loserNew, false);
+        await updateRating(winnerId, winnerNew, true);
+        await updateRating(loser.id, loserNew, false);
         ratingChanges[winnerId] = { newRating: winnerNew, change: `+${winnerGain}` };
         ratingChanges[loser.id] = { newRating: loserNew, change: `-${loserLoss}` };
       }
     }
   } else if (humanPlayers.length === 1) {
     const human = humanPlayers[0];
-    recordGamePlayed(human.id, true);
+    await recordGamePlayed(human.id, true);
   }
 
   game.ratingChanges = ratingChanges;
@@ -840,12 +839,12 @@ function applyRatings(game) {
   game.newBadges = {};
   game.completedChallenges = {};
   for (const p of humanPlayers) {
-    const earned = checkAndAwardBadges(p.id);
+    const earned = await checkAndAwardBadges(p.id);
     if (earned.length > 0) {
       game.newBadges[p.id] = earned;
     }
     // Check which challenges were just completed this game
-    const challenges = getNewlyCompletedChallenges(p.id, preStats[p.id].daily, preStats[p.id].weekly);
+    const challenges = await getNewlyCompletedChallenges(p.id, preStats[p.id].daily, preStats[p.id].weekly);
     if (challenges.length > 0) {
       game.completedChallenges[p.id] = challenges;
     }
@@ -914,7 +913,7 @@ function startTurnClock(game) {
   if (remaining <= 0) return;
 
   // Schedule auto-timeout
-  const handle = setTimeout(() => {
+  const handle = setTimeout(async () => {
     gameTimerHandles.delete(game.id);
     if (game.phase === 'ended') return;
     const player = game.players[game.currentPlayerIndex];
@@ -931,7 +930,7 @@ function startTurnClock(game) {
         game.winner = activePlayers[0].id;
         game.log.push(`${activePlayers[0].name} wins!`);
       }
-      applyRatings(game);
+      await applyRatings(game);
       broadcastGameState(game);
       setTimeout(() => {
         activeGames.delete(game.id);
@@ -958,7 +957,7 @@ function startTurnClock(game) {
   gameTimerHandles.set(game.id, handle);
 }
 
-function finishTurn(game) {
+async function finishTurn(game) {
   // Deduct elapsed time from current player before advancing
   deductTime(game);
 
@@ -969,7 +968,7 @@ function finishTurn(game) {
     const handle = gameTimerHandles.get(game.id);
     if (handle) { clearTimeout(handle); gameTimerHandles.delete(game.id); }
 
-    applyRatings(game);
+    await applyRatings(game);
     broadcastGameState(game);
     setTimeout(() => {
       activeGames.delete(game.id);
@@ -1045,6 +1044,13 @@ function processCpuTurn(game) {
 }
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-  console.log(`Splendur server running on port ${PORT}`);
+
+// Initialize database and start server
+initDb().then(() => {
+  server.listen(PORT, () => {
+    console.log(`Splendur server running on port ${PORT}`);
+  });
+}).catch(err => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
 });

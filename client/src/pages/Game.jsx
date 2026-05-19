@@ -116,53 +116,74 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
 
   // Animate card purchase — popup to center with full card info, then fly to player panel
   const animateCardFly = useCallback((card, targetSelector) => {
-    const cardId = card.id;
-    const color = card.discount;
-    const sourceEl = cardRefs.current[cardId] || reservedRefs.current[cardId];
-    const targetEl = document.querySelector(targetSelector);
-    if (!sourceEl || !targetEl) return;
+    try {
+      const cardId = card.id;
+      const color = card.discount || 'black';
+      const sourceEl = cardRefs.current[cardId] || reservedRefs.current[cardId];
+      const targetEl = document.querySelector(targetSelector);
+      if (!sourceEl || !targetEl) return;
 
-    const tr = targetEl.getBoundingClientRect();
+      const tr = targetEl.getBoundingClientRect();
 
-    // Phase 0: highlight card on board (600ms glow pulse)
-    setHighlightCards([{ id: cardId, color }]);
+      // Phase 0: highlight card on board (600ms glow pulse)
+      setHighlightCards([{ id: cardId, color }]);
 
-    setTimeout(() => {
-      setHighlightCards([]);
-      const sr = sourceEl.getBoundingClientRect();
-
-      // Phase 1: zoom card from its position to screen center (1.4s)
-      setPopupCard({
-        cardData: card,
-        color,
-        glow: CARD_GLOW[color],
-        startX: sr.left + sr.width / 2,
-        startY: sr.top + sr.height / 2,
-      });
-
-      // Phase 2: after popup hold, fly from center to player panel
       setTimeout(() => {
-        setPopupCard(null);
+        setHighlightCards([]);
+        // Re-check source element (may have been unmounted during reserve/purchase)
+        const currentSourceEl = cardRefs.current[cardId] || reservedRefs.current[cardId];
+        if (!currentSourceEl) {
+          // Source gone — skip popup, just do the fly from center
+          const cx = window.innerWidth / 2;
+          const cy = window.innerHeight / 2;
+          setFlyingCards(prev => [...prev, {
+            id: `card_${cardId}_${Date.now()}`,
+            startX: cx - 75, startY: cy - 105,
+            endX: tr.left + tr.width / 2 - 60, endY: tr.top + tr.height / 2,
+            color, bg: CARD_BG_SOLID[color] || CARD_BG_SOLID.black, glow: CARD_GLOW[color] || CARD_GLOW.black,
+          }]);
+          setTimeout(() => setFlyingCards(prev => prev.filter(c => !c.id.startsWith(`card_${cardId}`))), 1600);
+          return;
+        }
+        const sr = currentSourceEl.getBoundingClientRect();
 
-        const cx = window.innerWidth / 2;
-        const cy = window.innerHeight / 2;
-
-        setFlyingCards(prev => [...prev, {
-          id: `card_${cardId}_${Date.now()}`,
-          startX: cx - 75,
-          startY: cy - 105,
-          endX: tr.left + tr.width / 2 - 60,
-          endY: tr.top + tr.height / 2,
+        // Phase 1: zoom card from its position to screen center (1.4s)
+        setPopupCard({
+          cardData: card,
           color,
-          bg: CARD_BG_SOLID[color],
-          glow: CARD_GLOW[color],
-        }]);
+          glow: CARD_GLOW[color] || CARD_GLOW.black,
+          startX: sr.left + sr.width / 2,
+          startY: sr.top + sr.height / 2,
+        });
 
+        // Phase 2: after popup hold, fly from center to player panel
         setTimeout(() => {
-          setFlyingCards(prev => prev.filter(c => !c.id.startsWith(`card_${cardId}`)));
-        }, 1600);
-      }, 1400);
-    }, 600);
+          setPopupCard(null);
+
+          const cx = window.innerWidth / 2;
+          const cy = window.innerHeight / 2;
+
+          setFlyingCards(prev => [...prev, {
+            id: `card_${cardId}_${Date.now()}`,
+            startX: cx - 75,
+            startY: cy - 105,
+            endX: tr.left + tr.width / 2 - 60,
+            endY: tr.top + tr.height / 2,
+            color,
+            bg: CARD_BG_SOLID[color] || CARD_BG_SOLID.black,
+            glow: CARD_GLOW[color] || CARD_GLOW.black,
+          }]);
+
+          setTimeout(() => {
+            setFlyingCards(prev => prev.filter(c => !c.id.startsWith(`card_${cardId}`)));
+          }, 1600);
+        }, 1400);
+      }, 600);
+    } catch (err) {
+      console.error('Animation error (non-fatal):', err);
+      setHighlightCards([]);
+      setPopupCard(null);
+    }
   }, []);
 
   const animateNobleClaim = useCallback((tileId, targetSelector) => {
@@ -271,7 +292,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
           const prev = prevAllPlayers.current.find(p => p.id === player.id);
           if (!prev) continue;
           const prevResIds = new Set(prev.reservedIds);
-          const newReserved = (player.reserved || []).filter(c => !prevResIds.has(c.id));
+          const newReserved = (player.reserved || []).filter(c => c && c.id && !prevResIds.has(c.id));
           if (newReserved.length > 0) {
             const isMe = player.id === userId;
             if (isMe) setShowReserved(true); // auto-expand reserved section
@@ -279,7 +300,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
               ? '.my-reserved'
               : `[data-player-id="${player.id}"]`;
             for (const card of newReserved) {
-              if (cardRefs.current[card.id]) {
+              // Only animate if card has full data (not hidden) and has a board ref
+              if (!card.hidden && cardRefs.current[card.id]) {
                 animateCardFly(card, targetSelector);
               }
             }

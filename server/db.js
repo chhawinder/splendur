@@ -1,113 +1,146 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 
-const db = new Database(path.join(__dirname, '..', 'splendur.db'));
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ...(process.env.DATABASE_URL ? { ssl: { rejectUnauthorized: false } } : {}),
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    username TEXT UNIQUE NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    google_id TEXT UNIQUE,
-    avatar TEXT,
-    rating INTEGER DEFAULT 1500,
-    wins INTEGER DEFAULT 0,
-    losses INTEGER DEFAULT 0,
-    total_games INTEGER DEFAULT 0,
-    current_streak INTEGER DEFAULT 0,
-    best_streak INTEGER DEFAULT 0,
-    last_played TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  )
-`);
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      google_id TEXT UNIQUE,
+      avatar TEXT,
+      rating INTEGER DEFAULT 1500,
+      wins INTEGER DEFAULT 0,
+      losses INTEGER DEFAULT 0,
+      total_games INTEGER DEFAULT 0,
+      current_streak INTEGER DEFAULT 0,
+      best_streak INTEGER DEFAULT 0,
+      last_played TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      cpu_games INTEGER DEFAULT 0
+    )
+  `);
 
-// Add cpu_games column if missing
-try {
-  db.exec(`ALTER TABLE users ADD COLUMN cpu_games INTEGER DEFAULT 0`);
-} catch (e) {
-  // column already exists
+  // Add cpu_games column if missing (PostgreSQL 9.6+)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS cpu_games INTEGER DEFAULT 0`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS badges (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      badge_key TEXT NOT NULL,
+      earned_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(user_id, badge_key)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_stats (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      date TEXT NOT NULL,
+      games_played INTEGER DEFAULT 0,
+      games_won INTEGER DEFAULT 0,
+      UNIQUE(user_id, date)
+    )
+  `);
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS badges (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL,
-    badge_key TEXT NOT NULL,
-    earned_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(user_id, badge_key),
-    FOREIGN KEY(user_id) REFERENCES users(id)
-  )
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS daily_stats (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL,
-    date TEXT NOT NULL,
-    games_played INTEGER DEFAULT 0,
-    games_won INTEGER DEFAULT 0,
-    UNIQUE(user_id, date),
-    FOREIGN KEY(user_id) REFERENCES users(id)
-  )
-`);
-
-function createGoogleUser(id, username, email, googleId, avatar) {
-  const stmt = db.prepare('INSERT INTO users (id, username, email, google_id, avatar) VALUES (?, ?, ?, ?, ?)');
-  stmt.run(id, username, email, googleId, avatar);
+async function createGoogleUser(id, username, email, googleId, avatar) {
+  await pool.query(
+    'INSERT INTO users (id, username, email, google_id, avatar) VALUES ($1, $2, $3, $4, $5)',
+    [id, username, email, googleId, avatar]
+  );
 }
 
-function getUserByEmail(email) {
-  return db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+async function getUserByEmail(email) {
+  const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+  return result.rows[0];
 }
 
-function getUserByGoogleId(googleId) {
-  return db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
+async function getUserByGoogleId(googleId) {
+  const result = await pool.query('SELECT * FROM users WHERE google_id = $1', [googleId]);
+  return result.rows[0];
 }
 
-function getUserById(id) {
-  return db.prepare(`SELECT id, username, email, avatar, rating, wins, losses,
-    total_games, cpu_games, current_streak, best_streak, last_played, created_at FROM users WHERE id = ?`).get(id);
+async function getUserById(id) {
+  const result = await pool.query(
+    `SELECT id, username, email, avatar, rating, wins, losses,
+      total_games, cpu_games, current_streak, best_streak, last_played, created_at
+     FROM users WHERE id = $1`,
+    [id]
+  );
+  return result.rows[0];
 }
 
-function updateRating(id, rating, won) {
+async function updateRating(id, rating, won) {
   const today = new Date().toISOString().split('T')[0];
   if (won) {
-    db.prepare(`UPDATE users SET rating = ?, wins = wins + 1, total_games = total_games + 1,
-      current_streak = current_streak + 1,
-      best_streak = MAX(best_streak, current_streak + 1),
-      last_played = ? WHERE id = ?`).run(rating, today, id);
+    await pool.query(
+      `UPDATE users SET rating = $1, wins = wins + 1, total_games = total_games + 1,
+        current_streak = current_streak + 1,
+        best_streak = GREATEST(best_streak, current_streak + 1),
+        last_played = $2 WHERE id = $3`,
+      [rating, today, id]
+    );
   } else {
-    db.prepare(`UPDATE users SET rating = ?, losses = losses + 1, total_games = total_games + 1,
-      current_streak = 0, last_played = ? WHERE id = ?`).run(rating, today, id);
+    await pool.query(
+      `UPDATE users SET rating = $1, losses = losses + 1, total_games = total_games + 1,
+        current_streak = 0, last_played = $2 WHERE id = $3`,
+      [rating, today, id]
+    );
   }
 
   // Update daily stats
-  const existing = db.prepare('SELECT * FROM daily_stats WHERE user_id = ? AND date = ?').get(id, today);
-  if (existing) {
+  const existing = await pool.query(
+    'SELECT * FROM daily_stats WHERE user_id = $1 AND date = $2',
+    [id, today]
+  );
+  if (existing.rows.length > 0) {
     if (won) {
-      db.prepare('UPDATE daily_stats SET games_played = games_played + 1, games_won = games_won + 1 WHERE user_id = ? AND date = ?').run(id, today);
+      await pool.query(
+        'UPDATE daily_stats SET games_played = games_played + 1, games_won = games_won + 1 WHERE user_id = $1 AND date = $2',
+        [id, today]
+      );
     } else {
-      db.prepare('UPDATE daily_stats SET games_played = games_played + 1 WHERE user_id = ? AND date = ?').run(id, today);
+      await pool.query(
+        'UPDATE daily_stats SET games_played = games_played + 1 WHERE user_id = $1 AND date = $2',
+        [id, today]
+      );
     }
   } else {
-    db.prepare('INSERT INTO daily_stats (user_id, date, games_played, games_won) VALUES (?, ?, 1, ?)').run(id, today, won ? 1 : 0);
+    await pool.query(
+      'INSERT INTO daily_stats (user_id, date, games_played, games_won) VALUES ($1, $2, 1, $3)',
+      [id, today, won ? 1 : 0]
+    );
   }
 }
 
-function getDailyStats(userId, date) {
-  return db.prepare('SELECT * FROM daily_stats WHERE user_id = ? AND date = ?').get(userId, date) || { games_played: 0, games_won: 0 };
+async function getDailyStats(userId, date) {
+  const result = await pool.query(
+    'SELECT * FROM daily_stats WHERE user_id = $1 AND date = $2',
+    [userId, date]
+  );
+  return result.rows[0] || { games_played: 0, games_won: 0 };
 }
 
-function getWeeklyStats(userId) {
+async function getWeeklyStats(userId) {
   const today = new Date();
   const weekAgo = new Date(today);
   weekAgo.setDate(weekAgo.getDate() - 7);
-  const rows = db.prepare('SELECT SUM(games_played) as total_played, SUM(games_won) as total_won FROM daily_stats WHERE user_id = ? AND date >= ?')
-    .get(userId, weekAgo.toISOString().split('T')[0]);
-  return { games_played: rows?.total_played || 0, games_won: rows?.total_won || 0 };
+  const result = await pool.query(
+    'SELECT SUM(games_played) as total_played, SUM(games_won) as total_won FROM daily_stats WHERE user_id = $1 AND date >= $2',
+    [userId, weekAgo.toISOString().split('T')[0]]
+  );
+  const row = result.rows[0];
+  return { games_played: parseInt(row?.total_played) || 0, games_won: parseInt(row?.total_won) || 0 };
 }
 
-function getPlayStreak(userId) {
+async function getPlayStreak(userId) {
   // Count consecutive days played ending today
   let streak = 0;
   const today = new Date();
@@ -115,7 +148,11 @@ function getPlayStreak(userId) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().split('T')[0];
-    const stat = db.prepare('SELECT * FROM daily_stats WHERE user_id = ? AND date = ?').get(userId, dateStr);
+    const result = await pool.query(
+      'SELECT * FROM daily_stats WHERE user_id = $1 AND date = $2',
+      [userId, dateStr]
+    );
+    const stat = result.rows[0];
     if (stat && stat.games_played > 0) {
       streak++;
     } else {
@@ -125,71 +162,101 @@ function getPlayStreak(userId) {
   return streak;
 }
 
-function getUserBadges(userId) {
-  return db.prepare('SELECT badge_key, earned_at FROM badges WHERE user_id = ? ORDER BY earned_at DESC').all(userId);
+async function getUserBadges(userId) {
+  const result = await pool.query(
+    'SELECT badge_key, earned_at FROM badges WHERE user_id = $1 ORDER BY earned_at DESC',
+    [userId]
+  );
+  return result.rows;
 }
 
-function awardBadge(userId, badgeKey) {
+async function awardBadge(userId, badgeKey) {
   try {
-    db.prepare('INSERT OR IGNORE INTO badges (user_id, badge_key) VALUES (?, ?)').run(userId, badgeKey);
+    await pool.query(
+      'INSERT INTO badges (user_id, badge_key) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [userId, badgeKey]
+    );
     return true;
   } catch {
     return false;
   }
 }
 
-function recordGamePlayed(id, vsCPU = false) {
+async function recordGamePlayed(id, vsCPU = false) {
   const today = new Date().toISOString().split('T')[0];
   if (vsCPU) {
-    db.prepare(`UPDATE users SET total_games = total_games + 1, cpu_games = cpu_games + 1, last_played = ? WHERE id = ?`).run(today, id);
+    await pool.query(
+      `UPDATE users SET total_games = total_games + 1, cpu_games = cpu_games + 1, last_played = $1 WHERE id = $2`,
+      [today, id]
+    );
   } else {
-    db.prepare(`UPDATE users SET total_games = total_games + 1, last_played = ? WHERE id = ?`).run(today, id);
+    await pool.query(
+      `UPDATE users SET total_games = total_games + 1, last_played = $1 WHERE id = $2`,
+      [today, id]
+    );
   }
 
-  const existing = db.prepare('SELECT * FROM daily_stats WHERE user_id = ? AND date = ?').get(id, today);
-  if (existing) {
-    db.prepare('UPDATE daily_stats SET games_played = games_played + 1 WHERE user_id = ? AND date = ?').run(id, today);
+  const existing = await pool.query(
+    'SELECT * FROM daily_stats WHERE user_id = $1 AND date = $2',
+    [id, today]
+  );
+  if (existing.rows.length > 0) {
+    await pool.query(
+      'UPDATE daily_stats SET games_played = games_played + 1 WHERE user_id = $1 AND date = $2',
+      [id, today]
+    );
   } else {
-    db.prepare('INSERT INTO daily_stats (user_id, date, games_played, games_won) VALUES (?, ?, 1, 0)').run(id, today);
+    await pool.query(
+      'INSERT INTO daily_stats (user_id, date, games_played, games_won) VALUES ($1, $2, 1, 0)',
+      [id, today]
+    );
   }
 }
 
-function getAllUsers() {
-  return db.prepare('SELECT username, created_at, total_games, wins, rating FROM users ORDER BY created_at DESC').all();
+async function getAllUsers() {
+  const result = await pool.query(
+    'SELECT username, created_at, total_games, wins, rating FROM users ORDER BY created_at DESC'
+  );
+  return result.rows;
 }
 
-function updateAvatar(id, avatar) {
-  db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatar, id);
+async function updateAvatar(id, avatar) {
+  await pool.query('UPDATE users SET avatar = $1 WHERE id = $2', [avatar, id]);
 }
 
-function updateUsername(id, username) {
-  db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, id);
+async function updateUsername(id, username) {
+  await pool.query('UPDATE users SET username = $1 WHERE id = $2', [username, id]);
 }
 
-function getLeaderboardAllTime() {
-  return db.prepare(
+async function getLeaderboardAllTime() {
+  const result = await pool.query(
     'SELECT id, username, avatar, rating, wins, losses, total_games, current_streak, best_streak FROM users ORDER BY rating DESC LIMIT 50'
-  ).all();
+  );
+  return result.rows;
 }
 
-function getLeaderboardByPeriod(days) {
+async function getLeaderboardByPeriod(days) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
   const cutoffStr = cutoff.toISOString().split('T')[0];
-  return db.prepare(`
-    SELECT u.id, u.username, u.avatar, u.rating, u.wins, u.losses, u.total_games,
-           u.current_streak, u.best_streak,
-           COALESCE(SUM(ds.games_won), 0) AS period_wins
-    FROM daily_stats ds
-    JOIN users u ON u.id = ds.user_id
-    WHERE ds.date >= ?
-    GROUP BY ds.user_id
-    ORDER BY period_wins DESC
-    LIMIT 50
-  `).all(cutoffStr);
+  const result = await pool.query(
+    `SELECT u.id, u.username, u.avatar, u.rating, u.wins, u.losses, u.total_games,
+            u.current_streak, u.best_streak,
+            COALESCE(SUM(ds.games_won), 0) AS period_wins
+     FROM daily_stats ds
+     JOIN users u ON u.id = ds.user_id
+     WHERE ds.date >= $1
+     GROUP BY u.id, u.username, u.avatar, u.rating, u.wins, u.losses, u.total_games,
+              u.current_streak, u.best_streak
+     ORDER BY period_wins DESC
+     LIMIT 50`,
+    [cutoffStr]
+  );
+  return result.rows;
 }
 
 module.exports = {
+  initDb,
   createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById,
   updateRating, recordGamePlayed, getDailyStats, getWeeklyStats, getPlayStreak,
   getUserBadges, awardBadge, getAllUsers, updateAvatar, updateUsername,
