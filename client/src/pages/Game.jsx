@@ -6,6 +6,7 @@ import ReturnChipsModal from '../components/ReturnChipsModal';
 import ResignModal from '../components/ResignModal';
 import BadgeNotification from '../components/BadgeNotification';
 import { COST_COLORS } from '../components/Card';
+import VictoryScreen from '../components/VictoryScreen';
 import { useTheme } from '../ThemeContext';
 
 // Gem glow colors for animations
@@ -756,18 +757,12 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       )}
 
       {gameState.phase === 'ended' && (
-        <div className="game-over-banner">
-          <div className="game-over-title">
-            {!isSpectating && gameState.winner === userId
-              ? '🎉 You Win!'
-              : `Game Over - ${gameState.players.find(p => p.id === gameState.winner)?.name} wins!`}
-          </div>
-          {!isSpectating && gameState.ratingChanges && gameState.ratingChanges[userId] && (
-            <div className="rating-change">
-              Rating: {gameState.ratingChanges[userId].newRating} ({gameState.ratingChanges[userId].change})
-            </div>
-          )}
-        </div>
+        <VictoryScreen
+          gameState={gameState}
+          userId={userId}
+          isSpectating={isSpectating}
+          onLeave={onLeave}
+        />
       )}
 
       {actionError && (
