@@ -689,6 +689,15 @@ io.on('connection', (socket) => {
   socket.on('returnChips', ({ gameId, chips }) => {
     const game = getGameOrNotify(gameId);
     if (!game) return;
+    // CRITICAL: Only advance the turn if it's still this player's turn.
+    // When client state is stale, it may send returnChips even though
+    // takeChips/reserveCard already called finishTurn (needsReturn was false
+    // on the server). Without this guard, finishTurn fires twice — skipping
+    // the next player's turn entirely (the phantom turn-advance bug).
+    if (game.players[game.currentPlayerIndex].id !== socket.userId) {
+      console.warn(`[ACTION] returnChips by ${socket.username} IGNORED — not their turn (stale client state)`);
+      return;
+    }
     console.log(`[ACTION] returnChips by ${socket.username}: ${JSON.stringify(chips)}`);
     const result = returnChips(game, socket.userId, chips);
     if (result.error) return socket.emit('actionError', { message: result.error });
