@@ -375,11 +375,7 @@ async function clearPlayerActivity(userId) {
         }
         broadcastGameState(game);
         cleanupGameIfAbandoned(game);
-        // If next player is CPU, process
-        const next = game.players[game.currentPlayerIndex];
-        if (game.phase !== 'ended' && game.cpuPlayers?.includes(next.id) && !next.resigned) {
-          setTimeout(() => processCpuTurn(game), 6000);
-        }
+        scheduleCpuTurn(game);
       }
     }
   }
@@ -660,7 +656,7 @@ io.on('connection', (socket) => {
 
     // If first player is CPU, trigger their turn
     if (game.cpuPlayers.includes(game.players[game.currentPlayerIndex].id)) {
-      setTimeout(() => processCpuTurn(game), 6000);
+      scheduleCpuTurn(game);
     }
   });
 
@@ -767,10 +763,7 @@ io.on('connection', (socket) => {
       }
       broadcastGameState(game);
       cleanupGameIfAbandoned(game);
-      const next = game.players[game.currentPlayerIndex];
-      if (game.phase !== 'ended' && game.cpuPlayers?.includes(next.id) && !next.resigned) {
-        setTimeout(() => processCpuTurn(game), 6000);
-      }
+      scheduleCpuTurn(game);
     }
   });
 
@@ -904,6 +897,25 @@ function broadcastGameState(game) {
 
 // Track timeout timers per game so they can be cleared
 const gameTimerHandles = new Map(); // gameId -> setTimeout handle
+// Track CPU turn timers to prevent duplicate scheduling
+const cpuTurnTimers = new Map(); // gameId -> setTimeout handle
+
+// Single safe entry point for scheduling a CPU turn — prevents duplicates
+function scheduleCpuTurn(game) {
+  if (game.phase === 'ended') return;
+  const next = game.players[game.currentPlayerIndex];
+  if (!next || next.resigned || !game.cpuPlayers?.includes(next.id)) return;
+
+  // Clear any existing CPU timer for this game
+  const existing = cpuTurnTimers.get(game.id);
+  if (existing) clearTimeout(existing);
+
+  const handle = setTimeout(() => {
+    cpuTurnTimers.delete(game.id);
+    processCpuTurn(game);
+  }, 6000);
+  cpuTurnTimers.set(game.id, handle);
+}
 
 function deductTime(game) {
   if (!game.timers || !game.turnStartedAt) return;
@@ -968,11 +980,7 @@ function startTurnClock(game) {
       game.turnNumber++;
       broadcastGameState(game);
       startTurnClock(game);
-      // Check if next player is CPU
-      const next = game.players[game.currentPlayerIndex];
-      if (game.cpuPlayers?.includes(next.id) && !next.resigned) {
-        setTimeout(() => processCpuTurn(game), 6000);
-      }
+      scheduleCpuTurn(game);
     }
   }, timeout);
   gameTimerHandles.set(game.id, handle);
@@ -985,9 +993,11 @@ async function finishTurn(game) {
   endTurn(game);
 
   if (game.phase === 'ended') {
-    // Clear timer handle
+    // Clear timer handles
     const handle = gameTimerHandles.get(game.id);
     if (handle) { clearTimeout(handle); gameTimerHandles.delete(game.id); }
+    const cpuHandle = cpuTurnTimers.get(game.id);
+    if (cpuHandle) { clearTimeout(cpuHandle); cpuTurnTimers.delete(game.id); }
 
     await applyRatings(game);
     broadcastGameState(game);
@@ -1009,11 +1019,7 @@ async function finishTurn(game) {
   startTurnClock(game);
 
   broadcastGameState(game);
-
-  const nextPlayer = game.players[game.currentPlayerIndex];
-  if (game.phase !== 'ended' && !nextPlayer.resigned && game.cpuPlayers && game.cpuPlayers.includes(nextPlayer.id)) {
-    setTimeout(() => processCpuTurn(game), 6000);
-  }
+  scheduleCpuTurn(game);
 }
 
 function processCpuTurn(game) {

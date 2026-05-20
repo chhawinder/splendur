@@ -91,9 +91,16 @@ function createGame(playerIds, playerNames, targetScore, timeControl) {
     level3: deck3.splice(0, 4),
   };
 
-  const players = playerIds.map((id, i) => ({
-    id,
-    name: playerNames[i],
+  // Randomize turn order
+  const playerOrder = playerIds.map((id, i) => ({ id, name: playerNames[i] }));
+  for (let i = playerOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [playerOrder[i], playerOrder[j]] = [playerOrder[j], playerOrder[i]];
+  }
+
+  const players = playerOrder.map(p => ({
+    id: p.id,
+    name: p.name,
     chips: emptyChips(),
     cards: [],
     reserved: [],
