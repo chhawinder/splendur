@@ -661,9 +661,21 @@ io.on('connection', (socket) => {
   });
 
   // ---- GAME ACTIONS ----
-  socket.on('takeChips', ({ gameId, chips }) => {
+  // Helper: check game exists and tell client if not
+  function getGameOrNotify(gameId) {
     const game = activeGames.get(gameId);
+    if (!game) {
+      console.warn(`[ACTION] Game ${gameId} not found for user ${socket.username} (${socket.userId})`);
+      socket.emit('gameNotFound');
+      return null;
+    }
+    return game;
+  }
+
+  socket.on('takeChips', ({ gameId, chips }) => {
+    const game = getGameOrNotify(gameId);
     if (!game) return;
+    console.log(`[ACTION] takeChips by ${socket.username}: ${JSON.stringify(chips)}`);
     const result = takeChips(game, socket.userId, chips);
     if (result.error) return socket.emit('actionError', { message: result.error });
 
@@ -675,7 +687,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('returnChips', ({ gameId, chips }) => {
-    const game = activeGames.get(gameId);
+    const game = getGameOrNotify(gameId);
     if (!game) return;
     const result = returnChips(game, socket.userId, chips);
     if (result.error) return socket.emit('actionError', { message: result.error });
@@ -683,7 +695,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('reserveCard', ({ gameId, cardId, fromDeck }) => {
-    const game = activeGames.get(gameId);
+    const game = getGameOrNotify(gameId);
     if (!game) return;
     const result = reserveCard(game, socket.userId, cardId, fromDeck);
     if (result.error) return socket.emit('actionError', { message: result.error });
@@ -696,7 +708,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('purchaseCard', ({ gameId, cardId }) => {
-    const game = activeGames.get(gameId);
+    const game = getGameOrNotify(gameId);
     if (!game) return;
     const result = purchaseCard(game, socket.userId, cardId);
     if (result.error) return socket.emit('actionError', { message: result.error });
@@ -704,7 +716,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('passTurn', ({ gameId }) => {
-    const game = activeGames.get(gameId);
+    const game = getGameOrNotify(gameId);
     if (!game || game.phase === 'ended') return;
     if (game.players[game.currentPlayerIndex].id !== socket.userId) {
       return socket.emit('actionError', { message: 'Not your turn' });
@@ -991,10 +1003,14 @@ function startTurnClock(game) {
 }
 
 async function finishTurn(game) {
+  const prevPlayer = game.players[game.currentPlayerIndex];
   // Deduct elapsed time from current player before advancing
   deductTime(game);
 
   endTurn(game);
+
+  const nextPlayer = game.players[game.currentPlayerIndex];
+  console.log(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber})`);
 
   if (game.phase === 'ended') {
     // Clear timer handles
@@ -1124,7 +1140,8 @@ const PORT = process.env.PORT || 3001;
 // Initialize database and start server
 initDb().then(() => {
   server.listen(PORT, () => {
-    console.log(`Splendur server running on port ${PORT}`);
+    console.log(`Splendur server running on port ${PORT} — started at ${new Date().toISOString()}`);
+    console.log('WARNING: All active games are in-memory. Server restart will wipe them.');
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);

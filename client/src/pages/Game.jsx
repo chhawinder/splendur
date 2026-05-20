@@ -696,6 +696,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
           setShowReturn(true);
         } else {
           socket.emit('takeChips', { gameId, chips });
+          // Safety: if server doesn't respond in 8s, reset animating state
+          setTimeout(() => setGemAnimating(false), 8000);
         }
       }, 1200);
     }, 900);
