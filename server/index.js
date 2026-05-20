@@ -950,7 +950,11 @@ function startTurnClock(game) {
     gameTimerHandles.delete(game.id);
     if (game.phase === 'ended') return;
     const player = game.players[game.currentPlayerIndex];
-    if (player.id !== currentPlayer.id) return; // turn already advanced
+    if (player.id !== currentPlayer.id) {
+      console.log(`[TIMER] Timeout for ${currentPlayer.name} fired but turn already advanced to ${player.name} — ignoring`);
+      return;
+    }
+    console.log(`[TIMER] ${player.name} ran out of time! (isCPU: ${isCPU})`);
     // Time's up — player loses
     game.timers[idx] = 0;
     player.resigned = true;
@@ -1028,6 +1032,12 @@ function processCpuTurn(game) {
     const currentPlayer = game.players[game.currentPlayerIndex];
     if (currentPlayer.resigned) return;
     const cpuId = currentPlayer.id;
+
+    // CRITICAL GUARD: Never let a stale CPU timer play a human's turn
+    if (!game.cpuPlayers?.includes(cpuId)) {
+      console.warn(`[CPU] BLOCKED: processCpuTurn fired but current player ${currentPlayer.name} (${cpuId}) is HUMAN — skipping`);
+      return;
+    }
 
     console.log(`[CPU] ${currentPlayer.name} (${cpuId}) thinking... Bank:`, JSON.stringify(game.bank));
 

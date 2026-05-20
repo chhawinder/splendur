@@ -539,6 +539,11 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     });
     socket.on('actionError', ({ message }) => {
       setActionError(message);
+      // Force-drain any queued state so client catches up with server
+      if (pendingStates.current.length > 0) {
+        animBusyUntil.current = 0;
+        drainQueue();
+      }
     });
     socket.on('playerPassed', ({ playerName }) => {
       setPassAlert({ playerName });
