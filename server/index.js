@@ -682,37 +682,40 @@ io.on('connection', (socket) => {
     if (result.needsReturn) {
       socket.emit('needsReturn', { currentChips: game.players.find(p => p.id === socket.userId).chips });
     } else {
-      finishTurn(game);
+      finishTurn(game, 'takeChips');
     }
   });
 
   socket.on('returnChips', ({ gameId, chips }) => {
     const game = getGameOrNotify(gameId);
     if (!game) return;
+    console.log(`[ACTION] returnChips by ${socket.username}: ${JSON.stringify(chips)}`);
     const result = returnChips(game, socket.userId, chips);
     if (result.error) return socket.emit('actionError', { message: result.error });
-    finishTurn(game);
+    finishTurn(game, 'returnChips');
   });
 
   socket.on('reserveCard', ({ gameId, cardId, fromDeck }) => {
     const game = getGameOrNotify(gameId);
     if (!game) return;
+    console.log(`[ACTION] reserveCard by ${socket.username}: cardId=${cardId} fromDeck=${fromDeck}`);
     const result = reserveCard(game, socket.userId, cardId, fromDeck);
     if (result.error) return socket.emit('actionError', { message: result.error });
 
     if (result.needsReturn) {
       socket.emit('needsReturn', { currentChips: game.players.find(p => p.id === socket.userId).chips });
     } else {
-      finishTurn(game);
+      finishTurn(game, 'reserveCard');
     }
   });
 
   socket.on('purchaseCard', ({ gameId, cardId }) => {
     const game = getGameOrNotify(gameId);
     if (!game) return;
+    console.log(`[ACTION] purchaseCard by ${socket.username}: cardId=${cardId}`);
     const result = purchaseCard(game, socket.userId, cardId);
     if (result.error) return socket.emit('actionError', { message: result.error });
-    finishTurn(game);
+    finishTurn(game, 'purchaseCard');
   });
 
   socket.on('passTurn', ({ gameId }) => {
@@ -722,10 +725,11 @@ io.on('connection', (socket) => {
       return socket.emit('actionError', { message: 'Not your turn' });
     }
     const player = game.players.find(p => p.id === socket.userId);
+    console.log(`[ACTION] passTurn by ${socket.username}`);
     game.log.push(`${player.name} passed their turn.`);
     // Broadcast the pass alert to all players/spectators
     io.to(`game_${gameId}`).emit('playerPassed', { playerName: player.name, playerId: player.id });
-    finishTurn(game);
+    finishTurn(game, 'passTurn');
   });
 
   socket.on('resign', async ({ gameId }) => {
@@ -1002,7 +1006,7 @@ function startTurnClock(game) {
   gameTimerHandles.set(game.id, handle);
 }
 
-async function finishTurn(game) {
+async function finishTurn(game, caller = 'unknown') {
   const prevPlayer = game.players[game.currentPlayerIndex];
   // Deduct elapsed time from current player before advancing
   deductTime(game);
@@ -1010,7 +1014,7 @@ async function finishTurn(game) {
   endTurn(game);
 
   const nextPlayer = game.players[game.currentPlayerIndex];
-  console.log(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber})`);
+  console.log(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber}, caller: ${caller})`);
 
   if (game.phase === 'ended') {
     // Clear timer handles
@@ -1071,7 +1075,7 @@ function processCpuTurn(game) {
         }
         decision = { action: 'takeChips', chips };
       } else {
-        finishTurn(game);
+        finishTurn(game, 'cpu-fallback-pass');
         return;
       }
     }
@@ -1090,14 +1094,14 @@ function processCpuTurn(game) {
       case 'pass':
       default:
         game.log.push(`${currentPlayer.name} passed.`);
-        finishTurn(game);
+        finishTurn(game, 'cpu-pass');
         return;
     }
 
     if (result && result.error) {
       console.error(`[CPU] ${currentPlayer.name} action failed:`, result.error, '— forcing pass');
       game.log.push(`${currentPlayer.name} passed.`);
-      finishTurn(game);
+      finishTurn(game, 'cpu-action-error');
       return;
     }
 
@@ -1122,13 +1126,13 @@ function processCpuTurn(game) {
       }
     }
 
-    finishTurn(game);
+    finishTurn(game, 'cpu-action-success');
   } catch (err) {
     console.error(`[CPU] CRITICAL: processCpuTurn crashed for game ${game.id}:`, err);
     // Force-advance the turn so the game doesn't get stuck
     try {
       game.log.push(`${game.players[game.currentPlayerIndex].name} encountered an error and passed.`);
-      finishTurn(game);
+      finishTurn(game, 'cpu-crash-recovery');
     } catch (e2) {
       console.error('[CPU] Failed to recover from crash:', e2);
     }
