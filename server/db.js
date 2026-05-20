@@ -95,29 +95,15 @@ async function updateRating(id, rating, won) {
     );
   }
 
-  // Update daily stats
-  const existing = await pool.query(
-    'SELECT * FROM daily_stats WHERE user_id = $1 AND date = $2',
-    [id, today]
+  // Update daily stats — single upsert
+  await pool.query(
+    `INSERT INTO daily_stats (user_id, date, games_played, games_won)
+     VALUES ($1, $2, 1, $3)
+     ON CONFLICT (user_id, date) DO UPDATE SET
+       games_played = daily_stats.games_played + 1,
+       games_won = daily_stats.games_won + $3`,
+    [id, today, won ? 1 : 0]
   );
-  if (existing.rows.length > 0) {
-    if (won) {
-      await pool.query(
-        'UPDATE daily_stats SET games_played = games_played + 1, games_won = games_won + 1 WHERE user_id = $1 AND date = $2',
-        [id, today]
-      );
-    } else {
-      await pool.query(
-        'UPDATE daily_stats SET games_played = games_played + 1 WHERE user_id = $1 AND date = $2',
-        [id, today]
-      );
-    }
-  } else {
-    await pool.query(
-      'INSERT INTO daily_stats (user_id, date, games_played, games_won) VALUES ($1, $2, 1, $3)',
-      [id, today, won ? 1 : 0]
-    );
-  }
 }
 
 async function getDailyStats(userId, date) {
@@ -141,19 +127,21 @@ async function getWeeklyStats(userId) {
 }
 
 async function getPlayStreak(userId) {
-  // Count consecutive days played ending today
+  // Count consecutive days played ending today — single query
+  const today = new Date().toISOString().split('T')[0];
+  const result = await pool.query(
+    `SELECT date FROM daily_stats
+     WHERE user_id = $1 AND games_played > 0 AND date <= $2
+     ORDER BY date DESC LIMIT 365`,
+    [userId, today]
+  );
   let streak = 0;
-  const today = new Date();
-  for (let i = 0; i < 365; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
-    const result = await pool.query(
-      'SELECT * FROM daily_stats WHERE user_id = $1 AND date = $2',
-      [userId, dateStr]
-    );
-    const stat = result.rows[0];
-    if (stat && stat.games_played > 0) {
+  const now = new Date(today);
+  for (const row of result.rows) {
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() - streak);
+    const expectedStr = expected.toISOString().split('T')[0];
+    if (row.date === expectedStr) {
       streak++;
     } else {
       break;
@@ -196,21 +184,14 @@ async function recordGamePlayed(id, vsCPU = false) {
     );
   }
 
-  const existing = await pool.query(
-    'SELECT * FROM daily_stats WHERE user_id = $1 AND date = $2',
+  // Single upsert for daily stats
+  await pool.query(
+    `INSERT INTO daily_stats (user_id, date, games_played, games_won)
+     VALUES ($1, $2, 1, 0)
+     ON CONFLICT (user_id, date) DO UPDATE SET
+       games_played = daily_stats.games_played + 1`,
     [id, today]
   );
-  if (existing.rows.length > 0) {
-    await pool.query(
-      'UPDATE daily_stats SET games_played = games_played + 1 WHERE user_id = $1 AND date = $2',
-      [id, today]
-    );
-  } else {
-    await pool.query(
-      'INSERT INTO daily_stats (user_id, date, games_played, games_won) VALUES ($1, $2, 1, 0)',
-      [id, today]
-    );
-  }
 }
 
 async function getAllUsers() {

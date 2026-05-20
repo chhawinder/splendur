@@ -37,8 +37,8 @@ const CONFETTI_COLORS = ['#d4af37', '#f5d76e', '#e8f4f8', '#c9f5e0', '#ffcccb', 
 
 function createConfetti(x, y) {
   const pieces = [];
-  for (let i = 0; i < 40; i++) {
-    const angle = (Math.PI * 2 * i) / 40 + (Math.random() - 0.5) * 0.5;
+  for (let i = 0; i < 20; i++) {
+    const angle = (Math.PI * 2 * i) / 20 + (Math.random() - 0.5) * 0.5;
     const dist = 80 + Math.random() * 160;
     pieces.push({
       id: `${i}_${Date.now()}`,
@@ -102,6 +102,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   const [flyingGems, setFlyingGems] = useState([]);      // gems flying from center to panel
   const [returnFlyingGems, setReturnFlyingGems] = useState([]); // gems flying from player to bank on purchase
   const [gemAnimating, setGemAnimating] = useState(false);
+  const [passAlert, setPassAlert] = useState(null); // { playerName } shown as red flash
   const [now, setNow] = useState(Date.now()); // updates every second for live timer display
   const serverOffset = useRef(0);    // client time - server time
   const cardRefs = useRef({});       // board card elements
@@ -418,9 +419,16 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       }
       prevBoardCards.current = boardIds;
 
-      // Detect if bank changed (chips taken or returned)
-      const bankChanged = prevBankSnapshot.current &&
-        JSON.stringify(prevBankSnapshot.current) !== JSON.stringify(state.bank);
+      // Detect if bank changed (chips taken or returned) — shallow compare
+      let bankChanged = false;
+      if (prevBankSnapshot.current) {
+        for (const key of Object.keys(state.bank)) {
+          if (prevBankSnapshot.current[key] !== state.bank[key]) {
+            bankChanged = true;
+            break;
+          }
+        }
+      }
       prevBankSnapshot.current = state.bank;
 
       const applyState = () => {
@@ -532,12 +540,17 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     socket.on('actionError', ({ message }) => {
       setActionError(message);
     });
+    socket.on('playerPassed', ({ playerName }) => {
+      setPassAlert({ playerName });
+      setTimeout(() => setPassAlert(null), 2000);
+    });
 
     return () => {
       socket.off('gameState');
       socket.off('gameNotFound');
       socket.off('needsReturn');
       socket.off('actionError');
+      socket.off('playerPassed');
     };
   }, [socket, userId, isSpectating, gameId, onLeave, animateCardFly, animateNobleClaim]);
 
@@ -701,6 +714,11 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     setReturnChipsData(null);
   }
 
+  function handlePass() {
+    if (!isMyTurn) return;
+    socket.emit('passTurn', { gameId });
+  }
+
   function handleBackToLobby() {
     if (gameActive) {
       setShowResign(true);
@@ -719,6 +737,15 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     <div className="game-page">
       {isSpectating && (
         <div className="spectator-banner">Spectating</div>
+      )}
+
+      {passAlert && (
+        <div className="pass-alert-overlay">
+          <div className="pass-alert">
+            <span className="pass-alert-icon">&#x26D4;</span>
+            <span>{passAlert.playerName} passed their turn!</span>
+          </div>
+        </div>
       )}
 
       {gameState.phase === 'ended' && (
@@ -885,6 +912,12 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
               </span>
             )}
           </div>
+
+          {isMyTurn && gameActive && (
+            <button className="btn-pass" onClick={handlePass}>
+              Pass Turn
+            </button>
+          )}
 
           <button
             className={gameActive ? 'btn-danger btn-resign' : 'btn-secondary btn-resign'}

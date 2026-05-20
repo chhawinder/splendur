@@ -23,6 +23,12 @@ services:
       - path: /*
         name: Cache-Control
         value: public, max-age=0, must-revalidate
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin-allow-popups
+      - path: /*
+        name: Cross-Origin-Resource-Policy
+        value: cross-origin
     routes:
       - type: rewrite
         source: /*

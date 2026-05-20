@@ -23,6 +23,13 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json());
 
+// Cross-Origin headers to prevent COOP/CORP console warnings
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
+
 // Serve static files in production (only if client build exists)
 const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
 if (require('fs').existsSync(clientDistPath)) {
@@ -700,6 +707,19 @@ io.on('connection', (socket) => {
     finishTurn(game);
   });
 
+  socket.on('passTurn', ({ gameId }) => {
+    const game = activeGames.get(gameId);
+    if (!game || game.phase === 'ended') return;
+    if (game.players[game.currentPlayerIndex].id !== socket.userId) {
+      return socket.emit('actionError', { message: 'Not your turn' });
+    }
+    const player = game.players.find(p => p.id === socket.userId);
+    game.log.push(`${player.name} passed their turn.`);
+    // Broadcast the pass alert to all players/spectators
+    io.to(`game_${gameId}`).emit('playerPassed', { playerName: player.name, playerId: player.id });
+    finishTurn(game);
+  });
+
   socket.on('resign', async ({ gameId }) => {
     const game = activeGames.get(gameId);
     if (!game || game.phase === 'ended') return;
@@ -904,13 +924,14 @@ function startTurnClock(game) {
   const existing = gameTimerHandles.get(game.id);
   if (existing) clearTimeout(existing);
 
-  // Skip timer for CPU players
   const currentPlayer = game.players[game.currentPlayerIndex];
-  if (game.cpuPlayers?.includes(currentPlayer.id)) return;
-
+  const isCPU = game.cpuPlayers?.includes(currentPlayer.id);
   const idx = game.currentPlayerIndex;
   const remaining = game.timers[idx];
   if (remaining <= 0) return;
+
+  // For CPU: use a safety cap so a stuck CPU doesn't hang forever (max 30s or remaining time)
+  const timeout = isCPU ? Math.min(remaining, 30000) : remaining;
 
   // Schedule auto-timeout
   const handle = setTimeout(async () => {
@@ -953,7 +974,7 @@ function startTurnClock(game) {
         setTimeout(() => processCpuTurn(game), 6000);
       }
     }
-  }, remaining);
+  }, timeout);
   gameTimerHandles.set(game.id, handle);
 }
 
@@ -996,51 +1017,90 @@ async function finishTurn(game) {
 }
 
 function processCpuTurn(game) {
-  if (game.phase === 'ended') return;
-  const currentPlayer = game.players[game.currentPlayerIndex];
-  if (currentPlayer.resigned) return;
-  const cpuId = currentPlayer.id;
-  const decision = cpuTurn(game, cpuId);
-  if (!decision) return;
+  try {
+    if (game.phase === 'ended') return;
+    const currentPlayer = game.players[game.currentPlayerIndex];
+    if (currentPlayer.resigned) return;
+    const cpuId = currentPlayer.id;
 
-  let result;
-  switch (decision.action) {
-    case 'purchase':
-      result = purchaseCard(game, cpuId, decision.cardId);
-      break;
-    case 'takeChips':
-      result = takeChips(game, cpuId, decision.chips);
-      break;
-    case 'reserve':
-      result = reserveCard(game, cpuId, decision.cardId, decision.fromDeck);
-      break;
-    default:
-      break;
-  }
+    console.log(`[CPU] ${currentPlayer.name} (${cpuId}) thinking... Bank:`, JSON.stringify(game.bank));
 
-  // CPU auto-returns excess chips if over 10
-  if (result && result.needsReturn) {
-    const player = game.players.find(p => p.id === cpuId);
-    const total = Object.values(player.chips).reduce((s, v) => s + v, 0);
-    const excess = total - 10;
-    if (excess > 0) {
-      // Return chips with the most quantity first (least valuable to strategy)
-      const chipsToReturn = {};
-      let remaining = excess;
-      const sorted = Object.entries(player.chips)
-        .filter(([, v]) => v > 0)
-        .sort((a, b) => b[1] - a[1]); // most chips first
-      for (const [color, count] of sorted) {
-        if (remaining <= 0) break;
-        const ret = Math.min(count, remaining);
-        chipsToReturn[color] = ret;
-        remaining -= ret;
+    let decision = cpuTurn(game, cpuId);
+    console.log(`[CPU] ${currentPlayer.name} decision:`, JSON.stringify(decision));
+
+    // Fallback: if CPU can't decide, take any available chips or pass
+    if (!decision) {
+      console.warn(`[CPU] ${currentPlayer.name} returned null — using fallback`);
+      const available = ['black', 'white', 'blue', 'green', 'red'].filter(c => game.bank[c] > 0);
+      if (available.length > 0) {
+        const chips = {};
+        for (const c of available.slice(0, Math.min(3, available.length))) {
+          chips[c] = 1;
+        }
+        decision = { action: 'takeChips', chips };
+      } else {
+        finishTurn(game);
+        return;
       }
-      returnChips(game, cpuId, chipsToReturn);
+    }
+
+    let result;
+    switch (decision.action) {
+      case 'purchase':
+        result = purchaseCard(game, cpuId, decision.cardId);
+        break;
+      case 'takeChips':
+        result = takeChips(game, cpuId, decision.chips);
+        break;
+      case 'reserve':
+        result = reserveCard(game, cpuId, decision.cardId, decision.fromDeck);
+        break;
+      case 'pass':
+      default:
+        game.log.push(`${currentPlayer.name} passed.`);
+        finishTurn(game);
+        return;
+    }
+
+    if (result && result.error) {
+      console.error(`[CPU] ${currentPlayer.name} action failed:`, result.error, '— forcing pass');
+      game.log.push(`${currentPlayer.name} passed.`);
+      finishTurn(game);
+      return;
+    }
+
+    // CPU auto-returns excess chips if over 10
+    if (result && result.needsReturn) {
+      const player = game.players.find(p => p.id === cpuId);
+      const total = Object.values(player.chips).reduce((s, v) => s + v, 0);
+      const excess = total - 10;
+      if (excess > 0) {
+        const chipsToReturn = {};
+        let remaining = excess;
+        const sorted = Object.entries(player.chips)
+          .filter(([, v]) => v > 0)
+          .sort((a, b) => b[1] - a[1]);
+        for (const [color, count] of sorted) {
+          if (remaining <= 0) break;
+          const ret = Math.min(count, remaining);
+          chipsToReturn[color] = ret;
+          remaining -= ret;
+        }
+        returnChips(game, cpuId, chipsToReturn);
+      }
+    }
+
+    finishTurn(game);
+  } catch (err) {
+    console.error(`[CPU] CRITICAL: processCpuTurn crashed for game ${game.id}:`, err);
+    // Force-advance the turn so the game doesn't get stuck
+    try {
+      game.log.push(`${game.players[game.currentPlayerIndex].name} encountered an error and passed.`);
+      finishTurn(game);
+    } catch (e2) {
+      console.error('[CPU] Failed to recover from crash:', e2);
     }
   }
-
-  finishTurn(game);
 }
 
 const PORT = process.env.PORT || 3001;
