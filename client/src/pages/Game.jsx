@@ -8,6 +8,11 @@ import BadgeNotification from '../components/BadgeNotification';
 import { COST_COLORS } from '../components/Card';
 import VictoryScreen from '../components/VictoryScreen';
 import { useTheme } from '../ThemeContext';
+import {
+  playChipTake, playCardPurchase, playCardReserve, playYourTurn,
+  playBonusTile, playVictory, playDefeat, playPass, playError,
+  playOpponentAction, playTimerWarning,
+} from '../sounds';
 
 // Gem glow colors for animations
 const GEM_GLOW = {
@@ -117,6 +122,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   const prevAllPlayers = useRef(null); // track ALL players' cards
   const prevBoardCards = useRef(null); // track board card IDs
   const prevBankSnapshot = useRef(null); // track bank for staged chip animation
+  const prevCurrentPlayerId = useRef(null); // track turn changes for sound
 
   // Animate card purchase — popup to center with full card info, then fly to player panel
   const animateCardFly = useCallback((card, targetSelector) => {
@@ -236,6 +242,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
           const newCards = player.cards.filter(c => !prevIds.has(c.id));
           if (newCards.length > 0) {
             const isMe = player.id === userId;
+            if (isMe) playCardPurchase(); else playOpponentAction();
             const panelSelector = isMe
               ? '.player-panel.is-me'
               : `[data-player-id="${player.id}"]`;
@@ -299,7 +306,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
           const newReserved = (player.reserved || []).filter(c => c && c.id && !prevResIds.has(c.id));
           if (newReserved.length > 0) {
             const isMe = player.id === userId;
-            if (isMe) setShowReserved(true); // auto-expand reserved section
+            if (isMe) { setShowReserved(true); playCardReserve(); } else { playOpponentAction(); }
             const targetSelector = isMe
               ? '.my-reserved'
               : `[data-player-id="${player.id}"]`;
@@ -328,6 +335,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
             }
           }
           if (gained.length > 0) {
+            playOpponentAction();
             const panelSelector = `[data-player-id="${player.id}"]`;
             const targetEl = document.querySelector(panelSelector);
             const targetRect = targetEl
@@ -376,6 +384,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
         if (nobleClaims.length > 0) {
           const nobleStart = animationDelay > 0 ? animationDelay + 800 : 800;
           setTimeout(() => {
+            playBonusTile();
             for (const { tileId, panelSelector } of nobleClaims) {
               animateNobleClaim(tileId, panelSelector);
             }
@@ -460,8 +469,18 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       if (state.phase === 'ended') {
         applyState();
         animBusyUntil.current = 0; // clear any pending animation lock
+        // Play victory or defeat sound
+        if (!isSpectating) {
+          if (state.winner === userId) playVictory(); else playDefeat();
+        }
         return;
       }
+
+      // Play "your turn" notification when turn switches to the human player
+      if (!isSpectating && state.currentPlayerId === userId && prevCurrentPlayerId.current !== userId) {
+        playYourTurn();
+      }
+      prevCurrentPlayerId.current = state.currentPlayerId;
 
       // Staged animation: bank update (chip pop) happens separately from full state
       const chipPopDuration = 800; // time for pop animation to play
@@ -541,6 +560,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       setShowReturn(true);
     });
     socket.on('actionError', ({ message }) => {
+      playError();
       setActionError(message);
       // Force-drain any queued state so client catches up with server
       if (pendingStates.current.length > 0) {
@@ -549,6 +569,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       }
     });
     socket.on('playerPassed', ({ playerName }) => {
+      playPass();
       setPassAlert({ playerName });
       setTimeout(() => setPassAlert(null), 2000);
     });
@@ -648,6 +669,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     }
 
     // Phase 1: Show gems at screen center
+    playChipTake();
     setGemPopup(gemList);
 
     // Phase 2: After hold, fly gems to player panel

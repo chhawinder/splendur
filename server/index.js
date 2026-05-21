@@ -993,7 +993,11 @@ function startTurnClock(game) {
         game.winner = activePlayers[0].id;
         game.log.push(`${activePlayers[0].name} wins!`);
       }
-      await applyRatings(game);
+      try {
+        await applyRatings(game);
+      } catch (err) {
+        console.error('[TIMER] applyRatings failed:', err);
+      }
       broadcastGameState(game);
       setTimeout(() => {
         activeGames.delete(game.id);
@@ -1004,7 +1008,7 @@ function startTurnClock(game) {
           }
         }
         broadcastLobbyLists();
-      }, 5000);
+      }, 30000);
     } else {
       advanceToNextActivePlayer(game);
       game.turnNumber++;
@@ -1065,7 +1069,16 @@ function processCpuTurn(game) {
   try {
     if (game.phase === 'ended') return;
     const currentPlayer = game.players[game.currentPlayerIndex];
-    if (currentPlayer.resigned) return;
+    if (currentPlayer.resigned) {
+      console.log(`[CPU] ${currentPlayer.name} is resigned — skipping, advancing turn`);
+      // Advance past resigned CPU so game doesn't get stuck
+      advanceToNextActivePlayer(game);
+      game.turnNumber++;
+      broadcastGameState(game);
+      startTurnClock(game);
+      scheduleCpuTurn(game);
+      return;
+    }
     const cpuId = currentPlayer.id;
 
     // CRITICAL GUARD: Never let a stale CPU timer play a human's turn
@@ -1075,6 +1088,8 @@ function processCpuTurn(game) {
     }
 
     console.log(`[CPU] ${currentPlayer.name} (${cpuId}) thinking... Bank:`, JSON.stringify(game.bank));
+    const allBoardCards = [...game.board.level3, ...game.board.level2, ...game.board.level1];
+    console.log(`[CPU] Board: ${allBoardCards.length} cards, Reserved: ${currentPlayer.reserved.length}, Chips: ${JSON.stringify(currentPlayer.chips)}`);
 
     let decision = cpuTurn(game, cpuId);
     console.log(`[CPU] ${currentPlayer.name} decision:`, JSON.stringify(decision));
@@ -1114,7 +1129,36 @@ function processCpuTurn(game) {
     }
 
     if (result && result.error) {
-      console.error(`[CPU] ${currentPlayer.name} action failed:`, result.error, '— forcing pass');
+      console.error(`[CPU] ${currentPlayer.name} action ${decision.action} failed:`, result.error, 'decision:', JSON.stringify(decision));
+      // Try a simpler fallback before giving up
+      const fallbackColors = ['black', 'white', 'blue', 'green', 'red'].filter(c => game.bank[c] > 0);
+      if (fallbackColors.length > 0 && decision.action !== 'takeChips') {
+        const fallbackChips = {};
+        for (const c of fallbackColors.slice(0, Math.min(3, fallbackColors.length))) {
+          fallbackChips[c] = 1;
+        }
+        const fallbackResult = takeChips(game, cpuId, fallbackChips);
+        if (!fallbackResult.error) {
+          console.log(`[CPU] ${currentPlayer.name} recovered with fallback takeChips`);
+          if (fallbackResult.needsReturn) {
+            const p = game.players.find(p => p.id === cpuId);
+            const total = Object.values(p.chips).reduce((s, v) => s + v, 0);
+            if (total > 10) {
+              const toRet = {};
+              let rem = total - 10;
+              for (const [col, cnt] of Object.entries(p.chips).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1])) {
+                if (rem <= 0) break;
+                const r = Math.min(cnt, rem);
+                toRet[col] = r;
+                rem -= r;
+              }
+              returnChips(game, cpuId, toRet);
+            }
+          }
+          finishTurn(game, 'cpu-action-fallback');
+          return;
+        }
+      }
       game.log.push(`${currentPlayer.name} passed.`);
       finishTurn(game, 'cpu-action-error');
       return;
@@ -1137,7 +1181,10 @@ function processCpuTurn(game) {
           chipsToReturn[color] = ret;
           remaining -= ret;
         }
-        returnChips(game, cpuId, chipsToReturn);
+        const retResult = returnChips(game, cpuId, chipsToReturn);
+        if (retResult.error) {
+          console.error(`[CPU] ${currentPlayer.name} returnChips failed:`, retResult.error);
+        }
       }
     }
 
