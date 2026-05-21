@@ -32,7 +32,7 @@ function canAfford(card, playerChips, playerCards) {
   const discounts = getDiscounts(playerCards);
   let goldNeeded = 0;
   for (const color of COLORS) {
-    const cost = card.cost[color] || 0;
+    const cost = card.cost?.[color] || 0;
     const discount = discounts[color] || 0;
     const effective = Math.max(0, cost - discount);
     const deficit = Math.max(0, effective - (playerChips[color] || 0));
@@ -46,7 +46,7 @@ function computePayment(card, playerChips, playerCards) {
   const payment = emptyChips();
   let goldUsed = 0;
   for (const color of COLORS) {
-    const cost = card.cost[color] || 0;
+    const cost = card.cost?.[color] || 0;
     const discount = discounts[color] || 0;
     const effective = Math.max(0, cost - discount);
     const fromChips = Math.min(effective, playerChips[color] || 0);
