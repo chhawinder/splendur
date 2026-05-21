@@ -273,6 +273,36 @@ app.get('/api/achievements', authMiddleware, async (req, res) => {
   }
 });
 
+// Debug endpoint — inspect active game state (helps diagnose stuck games)
+app.get('/api/debug/games', (req, res) => {
+  const games = [];
+  for (const [id, game] of activeGames) {
+    games.push({
+      id,
+      phase: game.phase,
+      turnNumber: game.turnNumber,
+      currentPlayerIndex: game.currentPlayerIndex,
+      currentPlayer: game.players[game.currentPlayerIndex]?.name,
+      lastRoundRemaining: game.lastRoundRemaining || null,
+      lastRoundTriggeredBy: game.lastRoundTriggeredBy ?? null,
+      timeControl: game.timeControl,
+      players: game.players.map(p => ({
+        name: p.name,
+        id: p.id,
+        points: p.points,
+        resigned: p.resigned || false,
+        isCPU: p.isCPU || false,
+        chipCount: Object.values(p.chips).reduce((s, v) => s + v, 0),
+        cardCount: p.cards.length,
+      })),
+      bank: game.bank,
+      hasCpuTimer: cpuTurnTimers.has(id),
+      hasGameTimer: gameTimerHandles.has(id),
+    });
+  }
+  res.json({ activeGames: games, count: games.length });
+});
+
 // Catch-all for SPA (only if client build exists)
 if (require('fs').existsSync(path.join(clientDistPath, 'index.html'))) {
   app.get('*', (req, res) => {
@@ -346,6 +376,12 @@ async function clearPlayerActivity(userId) {
     if (player && !player.resigned) {
       player.resigned = true;
       game.log.push(`${player.name} left the game.`);
+
+      // Remove from lastRound tracking if applicable
+      if (game.lastRoundRemaining) {
+        const idx = game.lastRoundRemaining.indexOf(player.id);
+        if (idx !== -1) game.lastRoundRemaining.splice(idx, 1);
+      }
 
       // Return chips to bank
       for (const [color, amount] of Object.entries(player.chips)) {
@@ -751,6 +787,12 @@ io.on('connection', (socket) => {
     resignPlayer.resigned = true;
     game.log.push(`${resignPlayer.name} has resigned!`);
 
+    // Remove from lastRound tracking if applicable
+    if (game.lastRoundRemaining) {
+      const idx = game.lastRoundRemaining.indexOf(resignPlayer.id);
+      if (idx !== -1) game.lastRoundRemaining.splice(idx, 1);
+    }
+
     // Return resigned player's chips to the bank
     for (const [color, amount] of Object.entries(resignPlayer.chips)) {
       game.bank[color] = (game.bank[color] || 0) + amount;
@@ -938,7 +980,9 @@ function scheduleCpuTurn(game) {
 
   const handle = setTimeout(() => {
     cpuTurnTimers.delete(game.id);
-    processCpuTurn(game);
+    processCpuTurn(game).catch(err => {
+      console.error(`[CPU] Unhandled error in processCpuTurn for game ${game.id}:`, err);
+    });
   }, 6000);
   cpuTurnTimers.set(game.id, handle);
 }
@@ -986,6 +1030,12 @@ function startTurnClock(game) {
     player.resigned = true;
     game.log.push(`${player.name} ran out of time!`);
 
+    // Remove from lastRound tracking if applicable
+    if (game.lastRoundRemaining) {
+      const ridx = game.lastRoundRemaining.indexOf(player.id);
+      if (ridx !== -1) game.lastRoundRemaining.splice(ridx, 1);
+    }
+
     const activePlayers = game.players.filter(p => !p.resigned);
     if (activePlayers.length <= 1) {
       game.phase = 'ended';
@@ -1028,7 +1078,8 @@ async function finishTurn(game, caller = 'unknown') {
   endTurn(game);
 
   const nextPlayer = game.players[game.currentPlayerIndex];
-  console.log(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber}, caller: ${caller})`);
+  const lastRoundInfo = game.lastRoundRemaining ? ` lastRoundRemaining: [${game.lastRoundRemaining.join(',')}]` : '';
+  console.log(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber}, caller: ${caller})${lastRoundInfo}`);
 
   if (game.phase === 'ended') {
     // Clear timer handles
@@ -1065,12 +1116,45 @@ async function finishTurn(game, caller = 'unknown') {
   scheduleCpuTurn(game);
 }
 
-function processCpuTurn(game) {
+async function processCpuTurn(game) {
   try {
     if (game.phase === 'ended') return;
     const currentPlayer = game.players[game.currentPlayerIndex];
     if (currentPlayer.resigned) {
       console.log(`[CPU] ${currentPlayer.name} is resigned — skipping, advancing turn`);
+      // Remove from lastRound tracking if applicable
+      if (game.lastRoundRemaining) {
+        const ridx = game.lastRoundRemaining.indexOf(currentPlayer.id);
+        if (ridx !== -1) game.lastRoundRemaining.splice(ridx, 1);
+        // Check if this completes the last round
+        if (game.phase === 'lastRound' && game.lastRoundRemaining.length === 0) {
+          console.log(`[CPU] Last round complete after skipping resigned ${currentPlayer.name}`);
+          game.phase = 'ended';
+          const activePlayers = game.players.filter(p => !p.resigned);
+          let maxPoints = -1, winner = null;
+          for (const p of activePlayers) {
+            if (p.points > maxPoints || (p.points === maxPoints && (!winner || p.cards.length < winner.cards.length))) {
+              maxPoints = p.points;
+              winner = p;
+            }
+          }
+          if (winner) {
+            game.winner = winner.id;
+            game.log.push(`Game over! ${winner.name} wins with ${winner.points} points!`);
+          }
+          try { await applyRatings(game); } catch (err) { console.error('[CPU] applyRatings failed:', err); }
+          broadcastGameState(game);
+          setTimeout(() => {
+            activeGames.delete(game.id);
+            if (game.lobbyId) lobbies.delete(game.lobbyId);
+            for (const p of game.players) {
+              if (playerActivity.get(p.id)?.gameId === game.id) playerActivity.delete(p.id);
+            }
+            broadcastLobbyLists();
+          }, 30000);
+          return;
+        }
+      }
       // Advance past resigned CPU so game doesn't get stuck
       advanceToNextActivePlayer(game);
       game.turnNumber++;
@@ -1200,6 +1284,20 @@ function processCpuTurn(game) {
     }
   }
 }
+
+// Watchdog: every 15 seconds, check if any game has a CPU turn with no scheduled timer
+setInterval(() => {
+  for (const [gameId, game] of activeGames) {
+    if (game.phase === 'ended') continue;
+    const current = game.players[game.currentPlayerIndex];
+    if (!current || current.resigned) continue;
+    const isCPU = game.cpuPlayers?.includes(current.id);
+    if (isCPU && !cpuTurnTimers.has(gameId)) {
+      console.warn(`[WATCHDOG] Game ${gameId}: CPU ${current.name}'s turn but no timer scheduled — re-scheduling`);
+      scheduleCpuTurn(game);
+    }
+  }
+}, 15000);
 
 const PORT = process.env.PORT || 3001;
 

@@ -333,6 +333,22 @@ function endTurn(game) {
     game.phase = 'lastRound';
     game.lastRoundTriggeredBy = game.currentPlayerIndex;
     game.log.push(`${currentPlayer.name} reached ${winTarget} points! Final round begins.`);
+
+    // Track which non-resigned players still need their final turn
+    // (everyone AFTER the trigger in turn order)
+    game.lastRoundRemaining = [];
+    for (let i = 1; i < game.players.length; i++) {
+      const idx = (game.currentPlayerIndex + i) % game.players.length;
+      if (!game.players[idx].resigned) {
+        game.lastRoundRemaining.push(game.players[idx].id);
+      }
+    }
+  }
+
+  // If in lastRound, mark this player's final turn as done
+  if (game.phase === 'lastRound' && game.lastRoundRemaining) {
+    const remIdx = game.lastRoundRemaining.indexOf(currentPlayer.id);
+    if (remIdx !== -1) game.lastRoundRemaining.splice(remIdx, 1);
   }
 
   // Move to next non-resigned player
@@ -343,8 +359,8 @@ function endTurn(game) {
   }
   game.turnNumber++;
 
-  // Check if last round is complete (back to first player or past trigger point)
-  if (game.phase === 'lastRound' && game.currentPlayerIndex === 0) {
+  // Check if last round is complete (all remaining players have played)
+  if (game.phase === 'lastRound' && game.lastRoundRemaining && game.lastRoundRemaining.length === 0) {
     game.phase = 'ended';
     // Determine winner among non-resigned players
     const activePlayers = game.players.filter(p => !p.resigned);
