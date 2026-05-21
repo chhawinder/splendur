@@ -284,6 +284,8 @@ app.get('/api/achievements', authMiddleware, async (req, res) => {
 });
 
 // Debug endpoint — inspect active game state (helps diagnose stuck games)
+const SERVER_START_TIME = new Date().toISOString();
+
 app.get('/api/debug/games', (req, res) => {
   const games = [];
   for (const [id, game] of activeGames) {
@@ -311,7 +313,7 @@ app.get('/api/debug/games', (req, res) => {
       hasGameTimer: gameTimerHandles.has(id),
     });
   }
-  res.json({ activeGames: games, count: games.length });
+  res.json({ serverStartedAt: SERVER_START_TIME, uptime: `${Math.round(process.uptime())}s`, activeGames: games, count: games.length });
 });
 
 // Debug endpoint — view recent game event logs
@@ -1095,49 +1097,56 @@ function startTurnClock(game) {
 }
 
 async function finishTurn(game, caller = 'unknown') {
-  const prevPlayer = game.players[game.currentPlayerIndex];
-  // Deduct elapsed time from current player before advancing
-  deductTime(game);
+  try {
+    const prevPlayer = game.players[game.currentPlayerIndex];
+    // Deduct elapsed time from current player before advancing
+    deductTime(game);
 
-  endTurn(game);
+    endTurn(game);
 
-  const nextPlayer = game.players[game.currentPlayerIndex];
-  const lastRoundInfo = game.lastRoundRemaining ? ` lastRoundRemaining: [${game.lastRoundRemaining.join(',')}]` : '';
-  glog(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber}, caller: ${caller})${lastRoundInfo}`);
+    const nextPlayer = game.players[game.currentPlayerIndex];
+    const lastRoundInfo = game.lastRoundRemaining ? ` lastRoundRemaining: [${game.lastRoundRemaining.join(',')}]` : '';
+    glog(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber}, caller: ${caller})${lastRoundInfo}`);
 
-  if (game.phase === 'ended') {
-    // Clear timer handles
-    const handle = gameTimerHandles.get(game.id);
-    if (handle) { clearTimeout(handle); gameTimerHandles.delete(game.id); }
-    const cpuHandle = cpuTurnTimers.get(game.id);
-    if (cpuHandle) { clearTimeout(cpuHandle); cpuTurnTimers.delete(game.id); }
+    if (game.phase === 'ended') {
+      // Clear timer handles
+      const handle = gameTimerHandles.get(game.id);
+      if (handle) { clearTimeout(handle); gameTimerHandles.delete(game.id); }
+      const cpuHandle = cpuTurnTimers.get(game.id);
+      if (cpuHandle) { clearTimeout(cpuHandle); cpuTurnTimers.delete(game.id); }
 
-    try {
-      await applyRatings(game);
-    } catch (err) {
-      glog(`[GAME] applyRatings failed for game ${game.id}: ${err.message}`);
-    }
-    broadcastGameState(game);
-    // Longer delay so clients have time to see the victory screen
-    setTimeout(() => {
-      activeGames.delete(game.id);
-      if (game.lobbyId) lobbies.delete(game.lobbyId);
-      // Clear activity for all players
-      for (const p of game.players) {
-        if (playerActivity.get(p.id)?.gameId === game.id) {
-          playerActivity.delete(p.id);
-        }
+      try {
+        await applyRatings(game);
+      } catch (err) {
+        glog(`[GAME] applyRatings failed for game ${game.id}: ${err.message}`);
       }
-      broadcastLobbyLists();
-    }, 30000);
-    return;
+      broadcastGameState(game);
+      // Longer delay so clients have time to see the victory screen
+      setTimeout(() => {
+        activeGames.delete(game.id);
+        if (game.lobbyId) lobbies.delete(game.lobbyId);
+        // Clear activity for all players
+        for (const p of game.players) {
+          if (playerActivity.get(p.id)?.gameId === game.id) {
+            playerActivity.delete(p.id);
+          }
+        }
+        broadcastLobbyLists();
+      }, 30000);
+      return;
+    }
+
+    // Start clock for next player
+    startTurnClock(game);
+
+    broadcastGameState(game);
+    scheduleCpuTurn(game);
+  } catch (err) {
+    glog(`[FATAL] finishTurn crashed (caller: ${caller}, game: ${game.id}): ${err.message}`);
+    console.error('[FATAL] finishTurn error:', err);
+    // Try to keep the game alive — broadcast current state so client isn't stuck
+    try { broadcastGameState(game); } catch (e) { /* ignore */ }
   }
-
-  // Start clock for next player
-  startTurnClock(game);
-
-  broadcastGameState(game);
-  scheduleCpuTurn(game);
 }
 
 async function processCpuTurn(game) {
@@ -1323,12 +1332,23 @@ setInterval(() => {
   }
 }, 15000);
 
+// Prevent unhandled rejections/exceptions from crashing the server and killing all games
+process.on('unhandledRejection', (reason, promise) => {
+  glog(`[FATAL] Unhandled promise rejection: ${reason?.message || reason}`);
+  console.error('[FATAL] Unhandled rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  glog(`[FATAL] Uncaught exception: ${err.message}`);
+  console.error('[FATAL] Uncaught exception:', err);
+  // Don't exit — keep the server alive so games aren't lost
+});
+
 const PORT = process.env.PORT || 3001;
 
 // Initialize database and start server
 initDb().then(() => {
   server.listen(PORT, () => {
-    console.log(`Splendur server running on port ${PORT} — started at ${new Date().toISOString()}`);
+    glog(`[SERVER] Splendur server running on port ${PORT}`);
     console.log('WARNING: All active games are in-memory. Server restart will wipe them.');
   });
 }).catch(err => {
