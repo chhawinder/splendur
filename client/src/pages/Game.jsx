@@ -105,6 +105,8 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
   const [gemAnimating, setGemAnimating] = useState(false);
   const [passAlert, setPassAlert] = useState(null); // { playerName } shown as red flash
   const [now, setNow] = useState(Date.now()); // updates every second for live timer display
+  const onLeaveRef = useRef(onLeave);
+  onLeaveRef.current = onLeave;      // always points to latest onLeave without triggering effects
   const serverOffset = useRef(0);    // client time - server time
   const cardRefs = useRef({});       // board card elements
   const reservedRefs = useRef({});   // reserved card elements
@@ -528,7 +530,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     });
     socket.on('gameNotFound', () => {
       // Game was cleaned up — go back to lobby
-      onLeave();
+      onLeaveRef.current();
     });
     socket.on('needsReturn', ({ currentChips }) => {
       if (skipNextNeedsReturn.current) {
@@ -558,7 +560,7 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
       socket.off('actionError');
       socket.off('playerPassed');
     };
-  }, [socket, userId, isSpectating, gameId, onLeave, animateCardFly, animateNobleClaim]);
+  }, [socket, userId, isSpectating, gameId, animateCardFly, animateNobleClaim]);
 
   // Chess clock tick — update `now` every second for live countdown
   useEffect(() => {

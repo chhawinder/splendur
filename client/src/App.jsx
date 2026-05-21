@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Login from './pages/Login';
 import Lobby from './pages/Lobby';
 import Game from './pages/Game';
@@ -135,7 +135,7 @@ function AppInner() {
     setPage('game');
   }
 
-  function handleLeaveGame() {
+  const handleLeaveGame = useCallback(() => {
     if (socket && gameId) {
       if (isSpectating) {
         socket.emit('stopSpectating', { gameId });
@@ -147,7 +147,7 @@ function AppInner() {
     setGameId(null);
     setPage('lobby');
     refreshUser(); // Fetch fresh wins count
-  }
+  }, [socket, gameId, isSpectating]);
 
   function handleLogout() {
     localStorage.removeItem('token');

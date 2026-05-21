@@ -869,7 +869,8 @@ async function applyRatings(game) {
     }
   } else if (humanPlayers.length === 1) {
     const human = humanPlayers[0];
-    await recordGamePlayed(human.id, true);
+    const didWin = human.id === winnerId;
+    await recordGamePlayed(human.id, didWin);
   }
 
   game.ratingChanges = ratingChanges;
@@ -1032,8 +1033,13 @@ async function finishTurn(game, caller = 'unknown') {
     const cpuHandle = cpuTurnTimers.get(game.id);
     if (cpuHandle) { clearTimeout(cpuHandle); cpuTurnTimers.delete(game.id); }
 
-    await applyRatings(game);
+    try {
+      await applyRatings(game);
+    } catch (err) {
+      console.error('[GAME] applyRatings failed for game', game.id, err);
+    }
     broadcastGameState(game);
+    // Longer delay so clients have time to see the victory screen
     setTimeout(() => {
       activeGames.delete(game.id);
       if (game.lobbyId) lobbies.delete(game.lobbyId);
@@ -1044,7 +1050,7 @@ async function finishTurn(game, caller = 'unknown') {
         }
       }
       broadcastLobbyLists();
-    }, 5000);
+    }, 30000);
     return;
   }
 
