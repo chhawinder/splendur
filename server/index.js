@@ -16,6 +16,16 @@ const app = express();
 const server = http.createServer(app);
 const JWT_SECRET = process.env.JWT_SECRET || 'splendur-secret-key-change-in-prod';
 
+// In-memory ring buffer for game event logs (viewable via /api/debug/logs)
+const GAME_LOG_MAX = 500;
+const gameLogBuffer = [];
+function glog(msg) {
+  const entry = `[${new Date().toISOString()}] ${msg}`;
+  console.log(entry);
+  gameLogBuffer.push(entry);
+  if (gameLogBuffer.length > GAME_LOG_MAX) gameLogBuffer.shift();
+}
+
 const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] }
 });
@@ -294,6 +304,7 @@ app.get('/api/debug/games', (req, res) => {
         isCPU: p.isCPU || false,
         chipCount: Object.values(p.chips).reduce((s, v) => s + v, 0),
         cardCount: p.cards.length,
+        timerMs: game.timers ? game.timers[game.players.indexOf(p)] : null,
       })),
       bank: game.bank,
       hasCpuTimer: cpuTurnTimers.has(id),
@@ -301,6 +312,15 @@ app.get('/api/debug/games', (req, res) => {
     });
   }
   res.json({ activeGames: games, count: games.length });
+});
+
+// Debug endpoint — view recent game event logs
+app.get('/api/debug/logs', (req, res) => {
+  const filter = req.query.filter; // optional: ?filter=CPU or ?filter=TURN
+  const lines = filter
+    ? gameLogBuffer.filter(l => l.includes(`[${filter}]`))
+    : gameLogBuffer;
+  res.type('text/plain').send(lines.join('\n'));
 });
 
 // Catch-all for SPA (only if client build exists)
@@ -701,7 +721,7 @@ io.on('connection', (socket) => {
   function getGameOrNotify(gameId) {
     const game = activeGames.get(gameId);
     if (!game) {
-      console.warn(`[ACTION] Game ${gameId} not found for user ${socket.username} (${socket.userId})`);
+      glog(`[ACTION] Game ${gameId} not found for user ${socket.username} (${socket.userId})`);
       socket.emit('gameNotFound');
       return null;
     }
@@ -711,7 +731,7 @@ io.on('connection', (socket) => {
   socket.on('takeChips', ({ gameId, chips }) => {
     const game = getGameOrNotify(gameId);
     if (!game) return;
-    console.log(`[ACTION] takeChips by ${socket.username}: ${JSON.stringify(chips)}`);
+    glog(`[ACTION] takeChips by ${socket.username}: ${JSON.stringify(chips)}`);
     const result = takeChips(game, socket.userId, chips);
     if (result.error) return socket.emit('actionError', { message: result.error });
 
@@ -731,10 +751,10 @@ io.on('connection', (socket) => {
     // on the server). Without this guard, finishTurn fires twice — skipping
     // the next player's turn entirely (the phantom turn-advance bug).
     if (game.players[game.currentPlayerIndex].id !== socket.userId) {
-      console.warn(`[ACTION] returnChips by ${socket.username} IGNORED — not their turn (stale client state)`);
+      glog(`[ACTION] returnChips by ${socket.username} IGNORED — not their turn (stale client state)`);
       return;
     }
-    console.log(`[ACTION] returnChips by ${socket.username}: ${JSON.stringify(chips)}`);
+    glog(`[ACTION] returnChips by ${socket.username}: ${JSON.stringify(chips)}`);
     const result = returnChips(game, socket.userId, chips);
     if (result.error) return socket.emit('actionError', { message: result.error });
     finishTurn(game, 'returnChips');
@@ -743,7 +763,7 @@ io.on('connection', (socket) => {
   socket.on('reserveCard', ({ gameId, cardId, fromDeck }) => {
     const game = getGameOrNotify(gameId);
     if (!game) return;
-    console.log(`[ACTION] reserveCard by ${socket.username}: cardId=${cardId} fromDeck=${fromDeck}`);
+    glog(`[ACTION] reserveCard by ${socket.username}: cardId=${cardId} fromDeck=${fromDeck}`);
     const result = reserveCard(game, socket.userId, cardId, fromDeck);
     if (result.error) return socket.emit('actionError', { message: result.error });
 
@@ -757,7 +777,7 @@ io.on('connection', (socket) => {
   socket.on('purchaseCard', ({ gameId, cardId }) => {
     const game = getGameOrNotify(gameId);
     if (!game) return;
-    console.log(`[ACTION] purchaseCard by ${socket.username}: cardId=${cardId}`);
+    glog(`[ACTION] purchaseCard by ${socket.username}: cardId=${cardId}`);
     const result = purchaseCard(game, socket.userId, cardId);
     if (result.error) return socket.emit('actionError', { message: result.error });
     finishTurn(game, 'purchaseCard');
@@ -770,7 +790,7 @@ io.on('connection', (socket) => {
       return socket.emit('actionError', { message: 'Not your turn' });
     }
     const player = game.players.find(p => p.id === socket.userId);
-    console.log(`[ACTION] passTurn by ${socket.username}`);
+    glog(`[ACTION] passTurn by ${socket.username}`);
     game.log.push(`${player.name} passed their turn.`);
     // Broadcast the pass alert to all players/spectators
     io.to(`game_${gameId}`).emit('playerPassed', { playerName: player.name, playerId: player.id });
@@ -981,7 +1001,7 @@ function scheduleCpuTurn(game) {
   const handle = setTimeout(() => {
     cpuTurnTimers.delete(game.id);
     processCpuTurn(game).catch(err => {
-      console.error(`[CPU] Unhandled error in processCpuTurn for game ${game.id}:`, err);
+      glog(`[CPU] Unhandled error in processCpuTurn for game ${game.id}: ${err.message || err}`);
     });
   }, 6000);
   cpuTurnTimers.set(game.id, handle);
@@ -1010,10 +1030,14 @@ function startTurnClock(game) {
   const isCPU = game.cpuPlayers?.includes(currentPlayer.id);
   const idx = game.currentPlayerIndex;
   const remaining = game.timers[idx];
-  if (remaining <= 0) return;
 
-  // For CPU: use a safety cap so a stuck CPU doesn't hang forever (max 30s or remaining time)
-  const timeout = isCPU ? Math.min(remaining, 30000) : remaining;
+  // If time already at 0 (drained by deductTime), trigger timeout immediately (0ms)
+  // instead of silently returning — otherwise the player is never resigned
+  // For CPU: safety cap at 30s so a stuck CPU doesn't hang forever
+  const timeout = remaining <= 0 ? 0 : (isCPU ? Math.min(remaining, 30000) : remaining);
+  if (remaining <= 0) {
+    glog(`[TIMER] ${currentPlayer.name} already at 0:00 — scheduling immediate timeout`);
+  }
 
   // Schedule auto-timeout
   const handle = setTimeout(async () => {
@@ -1021,10 +1045,10 @@ function startTurnClock(game) {
     if (game.phase === 'ended') return;
     const player = game.players[game.currentPlayerIndex];
     if (player.id !== currentPlayer.id) {
-      console.log(`[TIMER] Timeout for ${currentPlayer.name} fired but turn already advanced to ${player.name} — ignoring`);
+      glog(`[TIMER] Timeout for ${currentPlayer.name} fired but turn already advanced to ${player.name} — ignoring`);
       return;
     }
-    console.log(`[TIMER] ${player.name} ran out of time! (isCPU: ${isCPU})`);
+    glog(`[TIMER] ${player.name} ran out of time! (isCPU: ${isCPU})`);
     // Time's up — player loses
     game.timers[idx] = 0;
     player.resigned = true;
@@ -1046,7 +1070,7 @@ function startTurnClock(game) {
       try {
         await applyRatings(game);
       } catch (err) {
-        console.error('[TIMER] applyRatings failed:', err);
+        glog(`[TIMER] applyRatings failed: ${err.message || err}`);
       }
       broadcastGameState(game);
       setTimeout(() => {
@@ -1079,7 +1103,7 @@ async function finishTurn(game, caller = 'unknown') {
 
   const nextPlayer = game.players[game.currentPlayerIndex];
   const lastRoundInfo = game.lastRoundRemaining ? ` lastRoundRemaining: [${game.lastRoundRemaining.join(',')}]` : '';
-  console.log(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber}, caller: ${caller})${lastRoundInfo}`);
+  glog(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber}, caller: ${caller})${lastRoundInfo}`);
 
   if (game.phase === 'ended') {
     // Clear timer handles
@@ -1091,7 +1115,7 @@ async function finishTurn(game, caller = 'unknown') {
     try {
       await applyRatings(game);
     } catch (err) {
-      console.error('[GAME] applyRatings failed for game', game.id, err);
+      glog(`[GAME] applyRatings failed for game ${game.id}: ${err.message}`);
     }
     broadcastGameState(game);
     // Longer delay so clients have time to see the victory screen
@@ -1121,14 +1145,14 @@ async function processCpuTurn(game) {
     if (game.phase === 'ended') return;
     const currentPlayer = game.players[game.currentPlayerIndex];
     if (currentPlayer.resigned) {
-      console.log(`[CPU] ${currentPlayer.name} is resigned — skipping, advancing turn`);
+      glog(`[CPU] ${currentPlayer.name} is resigned — skipping, advancing turn`);
       // Remove from lastRound tracking if applicable
       if (game.lastRoundRemaining) {
         const ridx = game.lastRoundRemaining.indexOf(currentPlayer.id);
         if (ridx !== -1) game.lastRoundRemaining.splice(ridx, 1);
         // Check if this completes the last round
         if (game.phase === 'lastRound' && game.lastRoundRemaining.length === 0) {
-          console.log(`[CPU] Last round complete after skipping resigned ${currentPlayer.name}`);
+          glog(`[CPU] Last round complete after skipping resigned ${currentPlayer.name}`);
           game.phase = 'ended';
           const activePlayers = game.players.filter(p => !p.resigned);
           let maxPoints = -1, winner = null;
@@ -1167,20 +1191,20 @@ async function processCpuTurn(game) {
 
     // CRITICAL GUARD: Never let a stale CPU timer play a human's turn
     if (!game.cpuPlayers?.includes(cpuId)) {
-      console.warn(`[CPU] BLOCKED: processCpuTurn fired but current player ${currentPlayer.name} (${cpuId}) is HUMAN — skipping`);
+      glog(`[CPU] BLOCKED: processCpuTurn fired but current player ${currentPlayer.name} (${cpuId}) is HUMAN — skipping`);
       return;
     }
 
-    console.log(`[CPU] ${currentPlayer.name} (${cpuId}) thinking... Bank:`, JSON.stringify(game.bank));
+    glog(`[CPU] ${currentPlayer.name} (${cpuId}) thinking... Bank: ${JSON.stringify(game.bank)}`);
     const allBoardCards = [...game.board.level3, ...game.board.level2, ...game.board.level1];
-    console.log(`[CPU] Board: ${allBoardCards.length} cards, Reserved: ${currentPlayer.reserved.length}, Chips: ${JSON.stringify(currentPlayer.chips)}`);
+    glog(`[CPU] Board: ${allBoardCards.length} cards, Reserved: ${currentPlayer.reserved.length}, Chips: ${JSON.stringify(currentPlayer.chips)}`);
 
     let decision = cpuTurn(game, cpuId);
-    console.log(`[CPU] ${currentPlayer.name} decision:`, JSON.stringify(decision));
+    glog(`[CPU] ${currentPlayer.name} decision: ${JSON.stringify(decision)}`);
 
     // Fallback: if CPU can't decide, take any available chips or pass
     if (!decision) {
-      console.warn(`[CPU] ${currentPlayer.name} returned null — using fallback`);
+      glog(`[CPU] ${currentPlayer.name} returned null — using fallback`);
       const available = ['black', 'white', 'blue', 'green', 'red'].filter(c => game.bank[c] > 0);
       if (available.length > 0) {
         const chips = {};
@@ -1213,7 +1237,7 @@ async function processCpuTurn(game) {
     }
 
     if (result && result.error) {
-      console.error(`[CPU] ${currentPlayer.name} action ${decision.action} failed:`, result.error, 'decision:', JSON.stringify(decision));
+      glog(`[CPU] ${currentPlayer.name} action ${decision.action} failed: ${result.error} decision: ${JSON.stringify(decision)}`);
       // Try a simpler fallback before giving up
       const fallbackColors = ['black', 'white', 'blue', 'green', 'red'].filter(c => game.bank[c] > 0);
       if (fallbackColors.length > 0 && decision.action !== 'takeChips') {
@@ -1223,7 +1247,7 @@ async function processCpuTurn(game) {
         }
         const fallbackResult = takeChips(game, cpuId, fallbackChips);
         if (!fallbackResult.error) {
-          console.log(`[CPU] ${currentPlayer.name} recovered with fallback takeChips`);
+          glog(`[CPU] ${currentPlayer.name} recovered with fallback takeChips`);
           if (fallbackResult.needsReturn) {
             const p = game.players.find(p => p.id === cpuId);
             const total = Object.values(p.chips).reduce((s, v) => s + v, 0);
@@ -1267,14 +1291,14 @@ async function processCpuTurn(game) {
         }
         const retResult = returnChips(game, cpuId, chipsToReturn);
         if (retResult.error) {
-          console.error(`[CPU] ${currentPlayer.name} returnChips failed:`, retResult.error);
+          glog(`[CPU] ${currentPlayer.name} returnChips failed: ${retResult.error}`);
         }
       }
     }
 
     finishTurn(game, 'cpu-action-success');
   } catch (err) {
-    console.error(`[CPU] CRITICAL: processCpuTurn crashed for game ${game.id}:`, err);
+    glog(`[CPU] CRITICAL: processCpuTurn crashed for game ${game.id}: ${err.message || err}`);
     // Force-advance the turn so the game doesn't get stuck
     try {
       game.log.push(`${game.players[game.currentPlayerIndex].name} encountered an error and passed.`);
@@ -1293,7 +1317,7 @@ setInterval(() => {
     if (!current || current.resigned) continue;
     const isCPU = game.cpuPlayers?.includes(current.id);
     if (isCPU && !cpuTurnTimers.has(gameId)) {
-      console.warn(`[WATCHDOG] Game ${gameId}: CPU ${current.name}'s turn but no timer scheduled — re-scheduling`);
+      glog(`[WATCHDOG] Game ${gameId}: CPU ${current.name}'s turn but no timer scheduled — re-scheduling`);
       scheduleCpuTurn(game);
     }
   }
