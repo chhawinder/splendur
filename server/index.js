@@ -7,7 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
 const db = require('./db');
-const { initDb, createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating, recordGamePlayed, updateAvatar, updateUsername, getLeaderboardAllTime, getLeaderboardByPeriod, getDailyStats, getWeeklyStats, getPlayStreak, getUserBadges, getAllUsers } = db;
+const { initDb, createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating, recordGamePlayed, updateAvatar, updateUsername, getLeaderboardAllTime, getLeaderboardByPeriod, getDailyStats, getWeeklyStats, getPlayStreak, getUserBadges, getAllUsers, insertGameLog, getGameLogs } = db;
 const { createGame, takeChips, returnChips, reserveCard, purchaseCard, endTurn, getPublicGameState } = require('./gameEngine');
 const { cpuTurn } = require('./cpuPlayer');
 const { BADGE_DEFS, checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWeeklyChallenges, getNewlyCompletedChallenges } = require('./badges');
@@ -19,11 +19,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'splendur-secret-key-change-in-prod
 // In-memory ring buffer for game event logs (viewable via /api/debug/logs)
 const GAME_LOG_MAX = 500;
 const gameLogBuffer = [];
-function glog(msg) {
+function glog(msg, level = 'INFO') {
   const entry = `[${new Date().toISOString()}] ${msg}`;
   console.log(entry);
   gameLogBuffer.push(entry);
   if (gameLogBuffer.length > GAME_LOG_MAX) gameLogBuffer.shift();
+  // Persist to Postgres (fire-and-forget — never blocks or crashes)
+  insertGameLog(msg, level);
 }
 
 const io = new Server(server, {
@@ -325,6 +327,20 @@ app.get('/api/debug/logs', (req, res) => {
   res.type('text/plain').send(lines.join('\n'));
 });
 
+// Debug endpoint — view PERSISTED logs from Postgres (survive restarts)
+// Usage: /api/debug/logs/history?hours=24&level=FATAL&limit=200
+app.get('/api/debug/logs/history', async (req, res) => {
+  try {
+    const hours = parseInt(req.query.hours) || 24;
+    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+    const level = req.query.level || null;
+    const logs = await getGameLogs(limit, level, hours);
+    res.json({ count: logs.length, hours, logs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Catch-all for SPA (only if client build exists)
 if (require('fs').existsSync(path.join(clientDistPath, 'index.html'))) {
   app.get('*', (req, res) => {
@@ -427,9 +443,11 @@ async function clearPlayerActivity(userId) {
           broadcastLobbyLists();
         }, 5000);
       } else {
-        // If it was this player's turn, advance
+        // If it was this player's turn, advance and start clock for next player
         if (game.players[game.currentPlayerIndex].id === userId) {
           advanceToNextActivePlayer(game);
+          game.turnNumber++;
+          startTurnClock(game);
         }
         broadcastGameState(game);
         cleanupGameIfAbandoned(game);
@@ -849,6 +867,8 @@ io.on('connection', (socket) => {
     } else {
       if (game.players[game.currentPlayerIndex].id === socket.userId) {
         advanceToNextActivePlayer(game);
+        game.turnNumber++;
+        startTurnClock(game);
       }
       broadcastGameState(game);
       cleanupGameIfAbandoned(game);
@@ -1142,7 +1162,7 @@ async function finishTurn(game, caller = 'unknown') {
     broadcastGameState(game);
     scheduleCpuTurn(game);
   } catch (err) {
-    glog(`[FATAL] finishTurn crashed (caller: ${caller}, game: ${game.id}): ${err.message}`);
+    glog(`[FATAL] finishTurn crashed (caller: ${caller}, game: ${game.id}): ${err.message}\n${err.stack}`, 'FATAL');
     console.error('[FATAL] finishTurn error:', err);
     // Try to keep the game alive — broadcast current state so client isn't stuck
     try { broadcastGameState(game); } catch (e) { /* ignore */ }
@@ -1334,11 +1354,11 @@ setInterval(() => {
 
 // Prevent unhandled rejections/exceptions from crashing the server and killing all games
 process.on('unhandledRejection', (reason, promise) => {
-  glog(`[FATAL] Unhandled promise rejection: ${reason?.message || reason}`);
+  glog(`[FATAL] Unhandled promise rejection: ${reason?.message || reason}\n${reason?.stack || ''}`, 'FATAL');
   console.error('[FATAL] Unhandled rejection:', reason);
 });
 process.on('uncaughtException', (err) => {
-  glog(`[FATAL] Uncaught exception: ${err.message}`);
+  glog(`[FATAL] Uncaught exception: ${err.message}\n${err.stack}`, 'FATAL');
   console.error('[FATAL] Uncaught exception:', err);
   // Don't exit — keep the server alive so games aren't lost
 });

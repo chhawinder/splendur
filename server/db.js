@@ -48,6 +48,24 @@ async function initDb() {
       UNIQUE(user_id, date)
     )
   `);
+
+  // Persistent game logs table — survives server restarts
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS game_logs (
+      id SERIAL PRIMARY KEY,
+      created_at TIMESTAMP DEFAULT NOW(),
+      level TEXT DEFAULT 'INFO',
+      message TEXT NOT NULL
+    )
+  `);
+
+  // Create index for fast time-range queries
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_game_logs_created_at ON game_logs (created_at DESC)
+  `);
+
+  // Auto-cleanup: delete logs older than 7 days to keep DB lean
+  await pool.query(`DELETE FROM game_logs WHERE created_at < NOW() - INTERVAL '7 days'`);
 }
 
 async function createGoogleUser(id, username, email, googleId, avatar) {
@@ -236,10 +254,36 @@ async function getLeaderboardByPeriod(days) {
   return result.rows;
 }
 
+// Fire-and-forget log insert — never throws
+async function insertGameLog(message, level = 'INFO') {
+  try {
+    await pool.query(
+      'INSERT INTO game_logs (message, level) VALUES ($1, $2)',
+      [message, level]
+    );
+  } catch { /* ignore DB errors for logging — don't crash the server */ }
+}
+
+// Query persisted logs — returns most recent first
+async function getGameLogs(limit = 200, level = null, hoursBack = 24) {
+  const cutoff = new Date(Date.now() - hoursBack * 60 * 60 * 1000).toISOString();
+  let query, params;
+  if (level) {
+    query = 'SELECT created_at, level, message FROM game_logs WHERE created_at >= $1 AND level = $2 ORDER BY created_at DESC LIMIT $3';
+    params = [cutoff, level, limit];
+  } else {
+    query = 'SELECT created_at, level, message FROM game_logs WHERE created_at >= $1 ORDER BY created_at DESC LIMIT $2';
+    params = [cutoff, limit];
+  }
+  const result = await pool.query(query, params);
+  return result.rows;
+}
+
 module.exports = {
   initDb,
   createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById,
   updateRating, recordGamePlayed, getDailyStats, getWeeklyStats, getPlayStreak,
   getUserBadges, awardBadge, getAllUsers, updateAvatar, updateUsername,
-  getLeaderboardAllTime, getLeaderboardByPeriod
+  getLeaderboardAllTime, getLeaderboardByPeriod,
+  insertGameLog, getGameLogs
 };
