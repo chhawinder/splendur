@@ -66,6 +66,19 @@ async function initDb() {
 
   // Auto-cleanup: delete logs older than 7 days to keep DB lean
   await pool.query(`DELETE FROM game_logs WHERE created_at < NOW() - INTERVAL '7 days'`);
+
+  // Persistent game state table — games survive server restarts
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS active_games (
+      id TEXT PRIMARY KEY,
+      lobby_id TEXT,
+      state JSONB NOT NULL,
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Clean up stale games older than 2 hours (abandoned games)
+  await pool.query(`DELETE FROM active_games WHERE updated_at < NOW() - INTERVAL '2 hours'`);
 }
 
 async function createGoogleUser(id, username, email, googleId, avatar) {
@@ -254,6 +267,32 @@ async function getLeaderboardByPeriod(days) {
   return result.rows;
 }
 
+// ============ GAME STATE PERSISTENCE ============
+
+async function saveGameState(gameId, lobbyId, state) {
+  try {
+    await pool.query(
+      `INSERT INTO active_games (id, lobby_id, state, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (id) DO UPDATE SET state = $3, updated_at = NOW()`,
+      [gameId, lobbyId || null, JSON.stringify(state)]
+    );
+  } catch { /* fire-and-forget — don't crash the server */ }
+}
+
+async function loadAllGameStates() {
+  try {
+    const result = await pool.query('SELECT id, lobby_id, state FROM active_games');
+    return result.rows.map(r => ({ id: r.id, lobbyId: r.lobby_id, state: r.state }));
+  } catch { return []; }
+}
+
+async function deleteGameState(gameId) {
+  try {
+    await pool.query('DELETE FROM active_games WHERE id = $1', [gameId]);
+  } catch { /* ignore */ }
+}
+
 // Fire-and-forget log insert — never throws
 async function insertGameLog(message, level = 'INFO') {
   try {
@@ -285,5 +324,6 @@ module.exports = {
   updateRating, recordGamePlayed, getDailyStats, getWeeklyStats, getPlayStreak,
   getUserBadges, awardBadge, getAllUsers, updateAvatar, updateUsername,
   getLeaderboardAllTime, getLeaderboardByPeriod,
-  insertGameLog, getGameLogs
+  insertGameLog, getGameLogs,
+  saveGameState, loadAllGameStates, deleteGameState
 };

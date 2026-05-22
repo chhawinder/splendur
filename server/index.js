@@ -7,7 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
 const db = require('./db');
-const { initDb, createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating, recordGamePlayed, updateAvatar, updateUsername, getLeaderboardAllTime, getLeaderboardByPeriod, getDailyStats, getWeeklyStats, getPlayStreak, getUserBadges, getAllUsers, insertGameLog, getGameLogs } = db;
+const { initDb, createGoogleUser, getUserByEmail, getUserByGoogleId, getUserById, updateRating, recordGamePlayed, updateAvatar, updateUsername, getLeaderboardAllTime, getLeaderboardByPeriod, getDailyStats, getWeeklyStats, getPlayStreak, getUserBadges, getAllUsers, insertGameLog, getGameLogs, saveGameState, loadAllGameStates, deleteGameState } = db;
 const { createGame, takeChips, returnChips, reserveCard, purchaseCard, endTurn, getPublicGameState } = require('./gameEngine');
 const { cpuTurn } = require('./cpuPlayer');
 const { BADGE_DEFS, checkAndAwardBadges, getPlayerBadgesWithDefs, getDailyChallenges, getWeeklyChallenges, getNewlyCompletedChallenges } = require('./badges');
@@ -389,6 +389,7 @@ function cleanupGameIfAbandoned(game) {
     game.log.push('Game abandoned — all human players left.');
     const timerHandle = gameTimerHandles.get(game.id);
     if (timerHandle) { clearTimeout(timerHandle); gameTimerHandles.delete(game.id); }
+    deleteGameState(game.id);
     activeGames.delete(game.id);
     if (game.lobbyId) lobbies.delete(game.lobbyId);
     broadcastLobbyLists();
@@ -437,6 +438,7 @@ async function clearPlayerActivity(userId) {
         }
         await applyRatings(game);
         broadcastGameState(game);
+        deleteGameState(game.id);
         setTimeout(() => {
           activeGames.delete(game.id);
           if (game.lobbyId) lobbies.delete(game.lobbyId);
@@ -450,6 +452,7 @@ async function clearPlayerActivity(userId) {
           startTurnClock(game);
         }
         broadcastGameState(game);
+        saveGameState(game.id, game.lobbyId, game);
         cleanupGameIfAbandoned(game);
         scheduleCpuTurn(game);
       }
@@ -703,6 +706,7 @@ io.on('connection', (socket) => {
       }
     }
     activeGames.set(game.id, game);
+    saveGameState(game.id, game.lobbyId, game);
 
     // Move all human sockets to game room and track activity
     for (const p of lobby.players) {
@@ -853,6 +857,7 @@ io.on('connection', (socket) => {
       }
       await applyRatings(game);
       broadcastGameState(game);
+      deleteGameState(game.id);
       setTimeout(() => {
         activeGames.delete(game.id);
         if (game.lobbyId) lobbies.delete(game.lobbyId);
@@ -871,6 +876,7 @@ io.on('connection', (socket) => {
         startTurnClock(game);
       }
       broadcastGameState(game);
+      saveGameState(game.id, game.lobbyId, game);
       cleanupGameIfAbandoned(game);
       scheduleCpuTurn(game);
     }
@@ -1095,6 +1101,7 @@ function startTurnClock(game) {
         glog(`[TIMER] applyRatings failed: ${err.message || err}`);
       }
       broadcastGameState(game);
+      deleteGameState(game.id);
       setTimeout(() => {
         activeGames.delete(game.id);
         if (game.lobbyId) lobbies.delete(game.lobbyId);
@@ -1109,6 +1116,7 @@ function startTurnClock(game) {
       advanceToNextActivePlayer(game);
       game.turnNumber++;
       broadcastGameState(game);
+      saveGameState(game.id, game.lobbyId, game);
       startTurnClock(game);
       scheduleCpuTurn(game);
     }
@@ -1126,7 +1134,8 @@ async function finishTurn(game, caller = 'unknown') {
 
     const nextPlayer = game.players[game.currentPlayerIndex];
     const lastRoundInfo = game.lastRoundRemaining ? ` lastRoundRemaining: [${game.lastRoundRemaining.join(',')}]` : '';
-    glog(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber}, caller: ${caller})${lastRoundInfo}`);
+    const pointsInfo = game.players.map(p => `${p.name}:${p.points}pts`).join(', ');
+    glog(`[TURN] ${prevPlayer.name} → ${nextPlayer.name} (phase: ${game.phase}, turn: ${game.turnNumber}, caller: ${caller}) [${pointsInfo}]${lastRoundInfo}`);
 
     if (game.phase === 'ended') {
       // Clear timer handles
@@ -1141,6 +1150,7 @@ async function finishTurn(game, caller = 'unknown') {
         glog(`[GAME] applyRatings failed for game ${game.id}: ${err.message}`);
       }
       broadcastGameState(game);
+      deleteGameState(game.id);
       // Longer delay so clients have time to see the victory screen
       setTimeout(() => {
         activeGames.delete(game.id);
@@ -1160,6 +1170,7 @@ async function finishTurn(game, caller = 'unknown') {
     startTurnClock(game);
 
     broadcastGameState(game);
+    saveGameState(game.id, game.lobbyId, game);
     scheduleCpuTurn(game);
   } catch (err) {
     glog(`[FATAL] finishTurn crashed (caller: ${caller}, game: ${game.id}): ${err.message}\n${err.stack}`, 'FATAL');
@@ -1197,6 +1208,7 @@ async function processCpuTurn(game) {
           }
           try { await applyRatings(game); } catch (err) { console.error('[CPU] applyRatings failed:', err); }
           broadcastGameState(game);
+          deleteGameState(game.id);
           setTimeout(() => {
             activeGames.delete(game.id);
             if (game.lobbyId) lobbies.delete(game.lobbyId);
@@ -1366,10 +1378,34 @@ process.on('uncaughtException', (err) => {
 const PORT = process.env.PORT || 3001;
 
 // Initialize database and start server
-initDb().then(() => {
+initDb().then(async () => {
+  // Restore any active games that were running before server restart
+  try {
+    const saved = await loadAllGameStates();
+    for (const { id, lobbyId, state } of saved) {
+      if (state && state.phase !== 'ended') {
+        activeGames.set(id, state);
+        if (lobbyId) {
+          lobbies.set(lobbyId, { id: lobbyId, name: state.lobbyName || 'Restored Game', host: state.players[0]?.id, players: state.players.map(p => ({ id: p.id, name: p.name, isCPU: p.isCPU || false })), maxPlayers: state.players.length, started: true });
+        }
+        glog(`[SERVER] Restored game ${id} (phase: ${state.phase}, turn: ${state.turnNumber}, players: ${state.players.map(p => p.name).join(', ')})`);
+        // Restart timers for restored games
+        if (state.timeControl && state.phase !== 'ended') {
+          startTurnClock(state);
+          scheduleCpuTurn(state);
+        }
+      } else {
+        // Game was ended, clean it up
+        deleteGameState(id);
+      }
+    }
+    if (saved.length > 0) glog(`[SERVER] Restored ${activeGames.size} active game(s) from database`);
+  } catch (err) {
+    glog(`[SERVER] Failed to restore games: ${err.message}`);
+  }
+
   server.listen(PORT, () => {
     glog(`[SERVER] Splendur server running on port ${PORT}`);
-    console.log('WARNING: All active games are in-memory. Server restart will wipe them.');
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);
