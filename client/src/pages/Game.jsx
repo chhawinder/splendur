@@ -226,6 +226,15 @@ export default function Game({ socket, gameId, userId, isSpectating, onLeave }) 
     }, 1400);
   }, []);
 
+  // Re-request game state on socket reconnect (server restart, network blip)
+  useEffect(() => {
+    function onReconnect() {
+      socket.emit('getGameState', { gameId });
+    }
+    socket.on('connect', onReconnect);
+    return () => socket.off('connect', onReconnect);
+  }, [socket, gameId]);
+
   useEffect(() => {
     // Request current game state on mount (in case we missed the initial emit)
     socket.emit('getGameState', { gameId });

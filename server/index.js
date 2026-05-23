@@ -1388,6 +1388,12 @@ initDb().then(async () => {
         if (lobbyId) {
           lobbies.set(lobbyId, { id: lobbyId, name: state.lobbyName || 'Restored Game', host: state.players[0]?.id, players: state.players.map(p => ({ id: p.id, name: p.name, isCPU: p.isCPU || false })), maxPlayers: state.players.length, started: true });
         }
+        // Rebuild playerActivity so reconnecting players are recognized
+        for (const p of state.players) {
+          if (!p.resigned && !p.isCPU) {
+            playerActivity.set(p.id, { gameId: id, role: 'playing' });
+          }
+        }
         glog(`[SERVER] Restored game ${id} (phase: ${state.phase}, turn: ${state.turnNumber}, players: ${state.players.map(p => p.name).join(', ')})`);
         // Restart timers for restored games
         if (state.timeControl && state.phase !== 'ended') {
