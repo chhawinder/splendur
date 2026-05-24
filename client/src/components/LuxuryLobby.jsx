@@ -285,6 +285,20 @@ function RoomCard({ lobby, isMyRoom, myId, iAmHost, startGame, leaveLobby, addCP
   const roomTitle = lobby.name || `${hostPlayer?.name || 'Unknown'}'s Heist`;
   const emptySlots = lobby.maxPlayers - lobby.players.length;
   const canJoin = !isMyRoom && !isInAnyLobby && lobby.players.length < lobby.maxPlayers;
+  const [copied, setCopied] = useState(false);
+
+  function shareRoom() {
+    const url = `${window.location.origin}?join=${lobby.id}`;
+    const text = `Join my Splendur game! ${url}`;
+    if (navigator.share) {
+      navigator.share({ title: 'Splendur - Join My Game', text, url }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(url).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }).catch(() => {});
+    }
+  }
 
   return (
     <div className={`lux-room-card ${isMyRoom ? 'lux-my-room' : ''}`}>
@@ -351,11 +365,19 @@ function RoomCard({ lobby, isMyRoom, myId, iAmHost, startGame, leaveLobby, addCP
               {lobby.players.length >= 2 && (
                 <button className="lux-btn-gold lux-btn-sm" onClick={() => startGame(lobby.id)}>START HEIST</button>
               )}
+              <button className="lux-btn-invite lux-btn-sm" onClick={shareRoom}>
+                {copied ? 'LINK COPIED!' : 'INVITE FRIEND'}
+              </button>
               <button className="lux-btn-danger lux-btn-sm" onClick={() => leaveLobby(lobby.id)}>CLOSE</button>
             </>
           )}
           {isMyRoom && !iAmHost && (
-            <button className="lux-btn-danger lux-btn-sm" onClick={() => leaveLobby(lobby.id)}>LEAVE</button>
+            <>
+              <button className="lux-btn-invite lux-btn-sm" onClick={shareRoom}>
+                {copied ? 'LINK COPIED!' : 'INVITE FRIEND'}
+              </button>
+              <button className="lux-btn-danger lux-btn-sm" onClick={() => leaveLobby(lobby.id)}>LEAVE</button>
+            </>
           )}
           {canJoin && (
             <button className="lux-btn-gold lux-btn-sm" onClick={() => joinLobby(lobby.id)}>JOIN HEIST</button>

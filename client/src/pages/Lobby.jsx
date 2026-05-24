@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import LuxuryLobby from '../components/LuxuryLobby';
+import { playPlayerJoined } from '../sounds';
 
 export default function Lobby({ socket, user, onGameStart, onSpectate, onProfile, onLogout }) {
   const [lobbies, setLobbies] = useState([]);
@@ -11,6 +12,7 @@ export default function Lobby({ socket, user, onGameStart, onSpectate, onProfile
   const [gameName, setGameName] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [mySocketId, setMySocketId] = useState(socket.userId || user?.id || null);
+  const prevMyLobbyPlayers = useRef(0);
 
   const myId = mySocketId || user?.id;
 
@@ -35,8 +37,19 @@ export default function Lobby({ socket, user, onGameStart, onSpectate, onProfile
       });
     });
     socket.on('activeGamesList', setActiveGames);
-    socket.on('lobbyCreated', (lobby) => setCurrentLobbyId(lobby.id));
+    socket.on('lobbyCreated', (lobby) => {
+      prevMyLobbyPlayers.current = lobby.players?.length || 1;
+      setCurrentLobbyId(lobby.id);
+    });
     socket.on('lobbyUpdated', (lobby) => {
+      // Play sound when someone joins YOUR room
+      setCurrentLobbyId(curId => {
+        if (curId && lobby.id === curId && lobby.players.length > prevMyLobbyPlayers.current) {
+          playPlayerJoined();
+        }
+        if (curId === lobby.id) prevMyLobbyPlayers.current = lobby.players.length;
+        return curId;
+      });
       setLobbies(prev => {
         const idx = prev.findIndex(l => l.id === lobby.id);
         if (idx >= 0) {

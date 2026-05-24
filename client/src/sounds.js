@@ -142,3 +142,10 @@ export function playOpponentAction() {
 export function playTimerWarning() {
   playTone(1000, 0.03, 'sine', 0.08);
 }
+
+// Player joined room — warm welcome chime
+export function playPlayerJoined() {
+  playTone(523, 0.15, 'sine', 0.1);  // C5
+  setTimeout(() => playTone(659, 0.15, 'sine', 0.1), 100);  // E5
+  setTimeout(() => playTone(784, 0.2, 'sine', 0.12), 200);  // G5
+}

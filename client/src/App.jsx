@@ -84,6 +84,15 @@ function AppInner() {
       setSocketUserId(userId);
       s.userId = userId;
       s.emit('checkActiveGame');
+
+      // Auto-join lobby from ?join= URL parameter
+      const params = new URLSearchParams(window.location.search);
+      const joinId = params.get('join');
+      if (joinId) {
+        s.emit('joinLobby', { lobbyId: joinId });
+        // Clean URL without reloading the page
+        window.history.replaceState({}, '', window.location.pathname);
+      }
     });
     s.once('activeGameFound', ({ gameId: gId, role }) => {
       if (gId) {
